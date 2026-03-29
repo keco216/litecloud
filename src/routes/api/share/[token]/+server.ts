@@ -37,19 +37,24 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	const file = db.select().from(files).where(eq(files.id, share.fileId)).get();
 	if (!file) error(404, 'File not found');
 
-	// Increment download count
-	db.update(shares)
-		.set({ downloadCount: (share.downloadCount ?? 0) + 1 })
-		.where(eq(shares.id, share.id))
-		.run();
+	const isPreview = url.searchParams.has('preview');
+
+	// Only increment download count for actual downloads, not previews
+	if (!isPreview) {
+		db.update(shares)
+			.set({ downloadCount: (share.downloadCount ?? 0) + 1 })
+			.where(eq(shares.id, share.id))
+			.run();
+	}
 
 	const nodeStream = getFileStream(file.userId, file.id, file.name);
 	const webStream = Readable.toWeb(nodeStream) as ReadableStream;
+	const disposition = isPreview ? 'inline' : `attachment; filename="${encodeURIComponent(file.name)}"`;
 
 	return new Response(webStream, {
 		headers: {
 			'Content-Type': file.mimeType || 'application/octet-stream',
-			'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
+			'Content-Disposition': disposition,
 			'Content-Length': String(file.size)
 		}
 	});

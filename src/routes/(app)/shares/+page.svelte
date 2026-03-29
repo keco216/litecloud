@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { formatFileSize } from '$lib/utils/filesize';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	type Share = { id: string; token: string; fileName: string; fileSize: number; fileMimeType: string | null; hasPassword: boolean; expiresAt: string | null; downloadCount: number; maxDownloads: number | null; createdAt: string; expired: boolean; exhausted: boolean };
 	let shares: Share[] = $state([]); let loading = $state(true); let copiedToken = $state('');
+	let confirmRevoke = $state({ open: false, id: '', name: '' });
 
 	async function loadShares() { loading = true; const res = await fetch('/api/share/list'); if (res.ok) shares = (await res.json()).shares; loading = false; }
-	async function revoke(id: string) { if (!confirm('Revoke this share link?')) return; const res = await fetch('/api/share/revoke', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); if (res.ok) shares = shares.filter(s => s.id !== id); }
+	async function revoke(id: string) { const res = await fetch('/api/share/revoke', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); if (res.ok) { shares = shares.filter(s => s.id !== id); confirmRevoke = { open: false, id: '', name: '' }; } }
 	async function copyUrl(token: string) { await navigator.clipboard.writeText(`${window.location.origin}/share/${token}`); copiedToken = token; setTimeout(() => copiedToken = '', 2000); }
 	function formatDate(d: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(d)); }
 	$effect(() => { loadShares(); });
@@ -59,7 +61,7 @@
 							</button>
 						</Tooltip>
 						<Tooltip text="Revoke link">
-							<button onclick={() => revoke(share.id)} class="m3-icon-btn !w-9 !h-9" aria-label="Revoke">
+							<button onclick={() => confirmRevoke = { open: true, id: share.id, name: share.fileName }} class="m3-icon-btn !w-9 !h-9" aria-label="Revoke">
 								<span class="material-symbols-outlined text-lg">delete</span>
 							</button>
 						</Tooltip>
@@ -69,3 +71,13 @@
 		</div>
 	{/if}
 </div>
+
+<ConfirmDialog
+	open={confirmRevoke.open}
+	title="Revoke share link"
+	message="The share link for '{confirmRevoke.name}' will stop working. Anyone with the link will no longer be able to download this file."
+	confirmLabel="Revoke"
+	danger={true}
+	onconfirm={() => revoke(confirmRevoke.id)}
+	oncancel={() => confirmRevoke = { open: false, id: '', name: '' }}
+/>

@@ -5,7 +5,9 @@
 	import UploadProgress from '$lib/components/UploadProgress.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import FilePreview from '$lib/components/FilePreview.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import { loadMasterKey, encryptFile, decryptFile } from '$lib/crypto';
 	import { browser } from '$app/environment';
 	import type { PageData } from './$types';
@@ -28,9 +30,36 @@
 	let selected = $state(new Set<string>());
 	let dragging = $state(false);
 	let dragCounter = $state(0);
+	let internalDrag = $state(false);
 	let uploads: UploadItem[] = $state([]);
 	let renamingId: string | null = $state(null);
 	let renameValue = $state('');
+	let showShortcuts = $state(false);
+	let moveDialogOpen = $state(false);
+	let confirmDelete = $state({ open: false, ids: [] as string[] });
+	let moveFileIds: string[] = $state([]);
+	let moveFolders: { name: string; path: string }[] = $state([]);
+	let ctxMenu = $state({ open: false, x: 0, y: 0, file: null as typeof data.files[0] | null });
+
+	function onContextMenu(e: MouseEvent, file: typeof data.files[0]) {
+		e.preventDefault();
+		ctxMenu = { open: true, x: e.clientX, y: e.clientY, file };
+	}
+
+	function getCtxMenuItems(file: typeof data.files[0]) {
+		const items: { icon: string; label: string; action: () => void; danger?: boolean; divider?: boolean }[] = [];
+		if (file.isFolder) items.push({ icon: 'folder_open', label: 'Open', action: () => openItem(file) });
+		else items.push({ icon: 'visibility', label: 'Preview', action: () => openPreview(file) });
+		items.push({ icon: 'edit', label: 'Rename', action: () => startRename(file.id, file.name) });
+		items.push({ icon: 'drive_file_move', label: 'Move to', action: () => openMoveDialog([file.id]) });
+		if (!file.isFolder) {
+			items.push({ icon: 'share', label: 'Share', action: () => openShare(file.id, file.name) });
+			items.push({ icon: 'download', label: 'Download', action: () => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null) });
+		}
+		items.push({ icon: '', label: '', action: () => {}, divider: true });
+		items.push({ icon: 'delete', label: 'Delete', action: () => deleteFiles([file.id]), danger: true });
+		return items;
+	}
 	let showNewFolder = $state(false);
 	let newFolderName = $state('');
 	let fileInput: HTMLInputElement;
@@ -115,10 +144,20 @@
 		}
 	}
 
-	async function deleteFiles(ids: string[]) {
-		if (!confirm(`Delete ${ids.length} item${ids.length !== 1 ? 's' : ''}?`)) return;
+	function deleteFiles(ids: string[]) {
+		confirmDelete = { open: true, ids };
+	}
+
+	async function executeDelete() {
+		const ids = confirmDelete.ids;
+		const count = ids.length;
+		confirmDelete = { open: false, ids: [] };
 		const res = await fetch('/api/files/delete', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
-		if (res.ok) { selected = new Set(); await invalidateAll(); }
+		if (res.ok) {
+			selected = new Set();
+			await invalidateAll();
+			(window as any).__lc_toast?.(`${count} item${count !== 1 ? 's' : ''} deleted`, 'info');
+		}
 	}
 
 	async function downloadFile(fileId: string, fileName: string, isEncrypted: boolean, iv: string | null) {
@@ -152,11 +191,96 @@
 	function openPreview(file: typeof data.files[0]) {
 		if (file.isFolder) return;
 		const m = file.mimeType || '';
-		if (!(m.startsWith('image/') || m.startsWith('text/') || m.includes('json'))) return;
 		previewFile = { id: file.id, name: file.name, size: file.size, mimeType: m, encrypted: file.encrypted ?? false, iv: file.iv ?? null };
 		previewOpen = true;
 	}
 	function openShare(id: string, name: string) { shareFileId = id; shareFileName = name; shareOpen = true; }
+
+	// Move files
+	let dropTargetId: string | null = $state(null);
+
+	async function moveFiles(ids: string[], targetFolder: typeof data.files[0]) {
+		const targetPath = data.currentPath === '/'
+			? '/' + targetFolder.name
+			: data.currentPath + '/' + targetFolder.name;
+		await moveToPath(ids, targetPath);
+	}
+
+	async function moveToPath(ids: string[], targetPath: string) {
+		const res = await fetch('/api/files/move', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ ids, targetPath })
+		});
+		if (res.ok) { selected = new Set(); moveDialogOpen = false; await invalidateAll(); }
+	}
+
+	function openMoveDialog(ids: string[]) {
+		moveFileIds = ids;
+		const folders: { name: string; path: string }[] = [];
+		const addedPaths = new Set<string>();
+
+		if (data.currentPath !== '/') {
+			// Parent folder (one level up)
+			const parts = data.currentPath.split('/').filter(Boolean);
+			parts.pop();
+			const parentPath = parts.length > 0 ? '/' + parts.join('/') : '/';
+			const parentName = parentPath === '/' ? 'My Files' : parts[parts.length - 1];
+			folders.push({ name: parentName, path: parentPath });
+			addedPaths.add(parentPath);
+
+			// Root if parent is not already root
+			if (parentPath !== '/') {
+				folders.push({ name: 'My Files', path: '/' });
+				addedPaths.add('/');
+			}
+		}
+
+		// Subfolders in current directory (excluding items being moved)
+		for (const f of data.files) {
+			if (f.isFolder && !ids.includes(f.id)) {
+				const path = data.currentPath === '/' ? '/' + f.name : data.currentPath + '/' + f.name;
+				if (!addedPaths.has(path)) {
+					folders.push({ name: f.name, path });
+					addedPaths.add(path);
+				}
+			}
+		}
+
+		moveFolders = folders;
+		moveDialogOpen = true;
+	}
+
+	function onRowDragStart(e: DragEvent, fileId: string) {
+		if (!e.dataTransfer) return;
+		internalDrag = true;
+		const ids = selected.size > 0 && selected.has(fileId) ? [...selected] : [fileId];
+		e.dataTransfer.setData('text/plain', JSON.stringify(ids));
+		e.dataTransfer.effectAllowed = 'move';
+	}
+
+	function onFolderDragOver(e: DragEvent, folderId: string) {
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dropTargetId = folderId;
+	}
+
+	function onFolderDragLeave() { dropTargetId = null; }
+
+	function onFolderDrop(e: DragEvent, folder: typeof data.files[0]) {
+		e.preventDefault();
+		e.stopPropagation();
+		dropTargetId = null;
+		internalDrag = false;
+		const raw = e.dataTransfer?.getData('text/plain');
+		if (!raw) return;
+		try {
+			const ids: string[] = JSON.parse(raw);
+			if (ids.includes(folder.id)) return;
+			moveFiles(ids, folder);
+		} catch {}
+	}
+
 	function setViewMode(m: ViewMode) { viewMode = m; if (browser) localStorage.setItem('lc-view', m); }
 	function cycleSortDir(key: SortKey) { if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc'; else { sortKey = key; sortDir = 'asc'; } }
 	function formatDate(d: Date) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(d)); }
@@ -174,8 +298,9 @@
 	function onKeydown(e: KeyboardEvent) {
 		const tag = (e.target as HTMLElement).tagName;
 		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+		if (e.key === '?') { showShortcuts = !showShortcuts; return; }
 		if (e.key === 'Delete' || e.key === 'Backspace') { if (selected.size > 0) { e.preventDefault(); deleteFiles([...selected]); } }
-		else if (e.key === 'Escape') { selected = new Set(); renamingId = null; showNewFolder = false; previewOpen = false; }
+		else if (e.key === 'Escape') { selected = new Set(); renamingId = null; showNewFolder = false; previewOpen = false; showShortcuts = false; ctxMenu = { ...ctxMenu, open: false }; }
 		else if ((e.ctrlKey || e.metaKey) && e.key === 'u') { e.preventDefault(); fileInput?.click(); }
 		else if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); toggleAll(); }
 	}
@@ -187,10 +312,10 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="px-8 py-2 min-h-[calc(100vh-4rem)]"
-	ondragenter={(e: DragEvent) => { e.preventDefault(); dragCounter++; dragging = true; }}
-	ondragover={(e: DragEvent) => { e.preventDefault(); e.stopPropagation(); }}
-	ondragleave={(e: DragEvent) => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragging = false; dragCounter = 0; } }}
-	ondrop={(e: DragEvent) => { e.preventDefault(); e.stopPropagation(); dragging = false; dragCounter = 0; uploadFiles(e.dataTransfer?.files ?? null); }}
+	ondragenter={(e: DragEvent) => { e.preventDefault(); if (internalDrag) return; dragCounter++; dragging = true; }}
+	ondragover={(e: DragEvent) => { e.preventDefault(); }}
+	ondragleave={(e: DragEvent) => { e.preventDefault(); if (internalDrag) return; dragCounter--; if (dragCounter <= 0) { dragging = false; dragCounter = 0; } }}
+	ondrop={(e: DragEvent) => { e.preventDefault(); if (internalDrag) { internalDrag = false; dropTargetId = null; dragging = false; dragCounter = 0; return; } dragging = false; dragCounter = 0; uploadFiles(e.dataTransfer?.files ?? null); }}
 >
 	<!-- Breadcrumb + View controls (Stitch toolbar) -->
 	<div class="flex items-center justify-between mb-2">
@@ -217,6 +342,11 @@
 			</Tooltip>
 			<div class="w-px h-6 bg-outline-variant/30 mx-1"></div>
 			{#if selected.size > 0}
+				<Tooltip text="Move {selected.size} selected">
+					<button onclick={() => openMoveDialog([...selected])} class="m3-icon-btn" aria-label="Move selected">
+						<span class="material-symbols-outlined">drive_file_move</span>
+					</button>
+				</Tooltip>
 				<Tooltip text="Delete {selected.size} selected">
 					<button onclick={() => deleteFiles([...selected])} class="m3-icon-btn !text-error" aria-label="Delete selected">
 						<span class="material-symbols-outlined">delete</span>
@@ -272,33 +402,60 @@
 			</button>
 		</div>
 
-	<!-- LIST VIEW (Stitch Google-style table) -->
+	<!-- Selection bar -->
+	{#if selected.size > 0}
+		<div class="flex items-center gap-3 px-4 py-2 mb-2 bg-secondary-container/30 rounded-xl" style="animation: m3-fade-in 150ms var(--m3-ease);">
+			<span class="m3-label-large text-on-secondary-container">{selected.size} selected</span>
+			<div class="flex-1"></div>
+			<button onclick={() => selected = new Set()} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 m3-label-medium">Clear</button>
+		</div>
+	{/if}
+
+	<!-- LIST VIEW (Google Drive style) -->
 	{:else if viewMode === 'list'}
 		<table class="w-full text-left border-collapse">
 			<thead class="sticky top-0 bg-surface-container-lowest z-20">
-				<tr class="text-on-surface-variant text-xs uppercase tracking-wider border-b border-outline-variant/10">
-					<th class="py-3 pl-4 w-12">
+				<tr class="border-b border-outline-variant/30">
+					<th class="py-2.5 pl-4 w-12">
 						<input type="checkbox" checked={allSelected} onchange={toggleAll}
 							class="m3-checkbox" />
 					</th>
-					<th class="py-3 font-semibold cursor-pointer select-none" onclick={() => cycleSortDir('name')}>
-						Name {sortKey === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('name')}>
+						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
+							Name
+							{#if sortKey === 'name'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+						</span>
 					</th>
-					<th class="py-3 font-semibold hidden lg:table-cell cursor-pointer select-none" onclick={() => cycleSortDir('updatedAt')}>
-						Modified {sortKey === 'updatedAt' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+					<th class="py-2.5 hidden lg:table-cell cursor-pointer select-none" onclick={() => cycleSortDir('updatedAt')}>
+						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
+							Modified
+							{#if sortKey === 'updatedAt'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+						</span>
 					</th>
-					<th class="py-3 font-semibold cursor-pointer select-none" onclick={() => cycleSortDir('size')}>
-						Size {sortKey === 'size' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('size')}>
+						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
+							Size
+							{#if sortKey === 'size'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+						</span>
 					</th>
-					<th class="py-3 w-12"></th>
+					<th class="py-2.5 w-36"></th>
 				</tr>
 			</thead>
-			<tbody class="text-sm">
-				{#each sortedFiles as file (file.id)}
+			<tbody>
+				{#each sortedFiles as file, idx (file.id)}
 					{@const icon = fileIcon(file.mimeType, file.isFolder ?? false)}
 					<tr
-						class="group hover:bg-surface-container-high rounded-xl transition-colors cursor-pointer {selected.has(file.id) ? 'bg-secondary-container/40' : ''}"
+						class="group transition-all duration-150 cursor-pointer border-b border-outline-variant/20
+							{selected.has(file.id) ? 'bg-secondary-container/25' : 'hover:bg-surface-container-high/50'}
+							{dropTargetId === file.id ? '!bg-primary/10 ring-2 ring-primary/40' : ''}"
 						ondblclick={() => { if (file.isFolder) openItem(file); else openPreview(file); }}
+						oncontextmenu={(e) => onContextMenu(e, file)}
+						draggable="true"
+						ondragstart={(e) => onRowDragStart(e, file.id)}
+						ondragover={file.isFolder ? (e) => onFolderDragOver(e, file.id) : undefined}
+						ondragleave={file.isFolder ? () => onFolderDragLeave() : undefined}
+						ondrop={file.isFolder ? (e) => onFolderDrop(e, file) : undefined}
+						style="animation: m3-stagger-in 250ms cubic-bezier(0.05,0.7,0.1,1) {Math.min(idx * 25, 150)}ms both;"
 					>
 						<td class="py-3 pl-4 rounded-l-xl">
 							<input type="checkbox" checked={selected.has(file.id)} onchange={() => toggleSelect(file.id)}
@@ -307,26 +464,41 @@
 						<td class="py-3">
 							{#if renamingId === file.id}
 								<div class="flex items-center gap-3">
-									<span class="material-symbols-outlined text-[{icon.color}]" style={file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}>{icon.icon}</span>
+									<div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background: {icon.color}12;">
+										<span class="material-symbols-outlined text-[22px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
+									</div>
 									<input bind:this={renameInput} bind:value={renameValue} type="text"
-										class="flex-1 text-sm border border-primary rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary"
+										class="flex-1 m3-input !h-9 !text-sm !rounded-lg"
 										onkeydown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') renamingId = null; }}
 										onblur={submitRename} />
 								</div>
 							{:else}
 								<button class="flex items-center gap-3 w-full text-left cursor-pointer" onclick={() => { if (file.isFolder) openItem(file); }}>
-									<span class="material-symbols-outlined" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
-									<span class="font-medium text-on-surface {file.isFolder ? '' : ''}">{file.name}</span>
+									<div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-150 group-hover:scale-105" style="background: {icon.color}{file.isFolder ? '15' : '0a'};">
+										<span class="material-symbols-outlined text-[22px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
+									</div>
+									<div class="min-w-0">
+										<span class="m3-body-medium font-medium text-on-surface block truncate">{file.name}</span>
+										<span class="m3-label-small text-on-surface-variant">
+											{#if file.isFolder}Folder{:else}{file.mimeType?.split('/').pop()?.toUpperCase() || 'File'}{#if file.encrypted}&nbsp;&middot;&nbsp;<span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">lock</span>Encrypted</span>{/if}{/if}
+										</span>
+									</div>
 								</button>
 							{/if}
 						</td>
-						<td class="py-3 hidden lg:table-cell text-on-surface-variant">{formatDate(file.updatedAt)}</td>
-						<td class="py-3 text-on-surface-variant">{file.isFolder ? '—' : formatFileSize(file.size)}</td>
+						<td class="py-3 hidden lg:table-cell"><span class="m3-body-small text-on-surface-variant">{formatDate(file.updatedAt)}</span></td>
+						<td class="py-3"><span class="m3-body-small text-on-surface-variant">{file.size > 0 ? formatFileSize(file.size) : '—'}</span></td>
 						<td class="py-3 pr-4 rounded-r-xl text-right">
-							<div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 justify-end">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 justify-end" ondblclick={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
 								<Tooltip text="Rename">
 									<button onclick={() => startRename(file.id, file.name)} class="m3-icon-btn !w-8 !h-8" aria-label="Rename">
 										<span class="material-symbols-outlined text-lg">edit</span>
+									</button>
+								</Tooltip>
+								<Tooltip text="Move to">
+									<button onclick={() => openMoveDialog([file.id])} class="m3-icon-btn !w-8 !h-8" aria-label="Move to">
+										<span class="material-symbols-outlined text-lg">drive_file_move</span>
 									</button>
 								</Tooltip>
 								{#if !file.isFolder}
@@ -356,11 +528,21 @@
 	<!-- GRID VIEW -->
 	{:else}
 		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-2">
-			{#each sortedFiles as file (file.id)}
+			{#each sortedFiles as file, idx (file.id)}
 				{@const icon = fileIcon(file.mimeType, file.isFolder ?? false)}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="group relative bg-surface-container-low rounded-2xl p-5 hover:bg-surface-container-high transition-all cursor-pointer {selected.has(file.id) ? 'ring-2 ring-primary' : ''}"
+					class="group relative bg-surface-container-low rounded-2xl p-5 hover:bg-surface-container-high hover:shadow-[var(--m3-elevation-1)] transition-all cursor-pointer
+						{selected.has(file.id) ? 'ring-2 ring-primary bg-secondary-container/20' : ''}
+						{dropTargetId === file.id ? '!bg-primary/10 ring-2 ring-primary/40' : ''}"
 					ondblclick={() => { if (file.isFolder) openItem(file); else openPreview(file); }}
+					oncontextmenu={(e) => onContextMenu(e, file)}
+					draggable="true"
+					ondragstart={(e) => onRowDragStart(e, file.id)}
+					ondragover={file.isFolder ? (e) => onFolderDragOver(e, file.id) : undefined}
+					ondragleave={file.isFolder ? () => onFolderDragLeave() : undefined}
+					ondrop={file.isFolder ? (e) => onFolderDrop(e, file) : undefined}
+					style="animation: m3-stagger-in 250ms cubic-bezier(0.05,0.7,0.1,1) {Math.min(idx * 30, 200)}ms both;"
 				>
 					<div class="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity {selected.has(file.id) ? '!opacity-100' : ''}">
 						<input type="checkbox" checked={selected.has(file.id)} onchange={() => toggleSelect(file.id)}
@@ -372,9 +554,11 @@
 						</button>
 					</div>
 					<button class="flex flex-col items-center w-full cursor-pointer" onclick={() => { if (file.isFolder) openItem(file); }}>
-						<span class="material-symbols-outlined text-4xl mb-3" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
-						<p class="text-xs text-on-surface text-center truncate w-full font-medium">{file.name}</p>
-						<p class="text-[10px] text-on-surface-variant text-center mt-0.5">{file.isFolder ? 'Folder' : formatFileSize(file.size)}</p>
+						<div class="w-12 h-12 rounded-xl flex items-center justify-center mb-2" style="background: {icon.color}10;">
+							<span class="material-symbols-outlined text-[28px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
+						</div>
+						<p class="m3-body-small font-medium text-on-surface text-center truncate w-full">{file.name}</p>
+						<p class="m3-label-small text-on-surface-variant text-center mt-0.5">{file.isFolder ? 'Folder' : formatFileSize(file.size)}</p>
 					</button>
 				</div>
 			{/each}
@@ -385,6 +569,99 @@
 <UploadProgress {uploads} />
 <ShareDialog fileId={shareFileId} fileName={shareFileName} open={shareOpen} onclose={() => shareOpen = false} />
 <FilePreview open={previewOpen} fileId={previewFile.id} fileName={previewFile.name} fileSize={previewFile.size} mimeType={previewFile.mimeType} encrypted={previewFile.encrypted} iv={previewFile.iv} onclose={() => previewOpen = false} />
+<ConfirmDialog
+	open={confirmDelete.open}
+	title="Delete {confirmDelete.ids.length === 1 ? 'item' : `${confirmDelete.ids.length} items`}"
+	message="This action cannot be undone. The {confirmDelete.ids.length === 1 ? 'file' : 'files'} will be permanently removed."
+	confirmLabel="Delete"
+	danger={true}
+	onconfirm={executeDelete}
+	oncancel={() => confirmDelete = { open: false, ids: [] }}
+/>
+{#if ctxMenu.open && ctxMenu.file}
+	<ContextMenu items={getCtxMenuItems(ctxMenu.file)} x={ctxMenu.x} y={ctxMenu.y} open={ctxMenu.open} onclose={() => ctxMenu = { ...ctxMenu, open: false }} />
+{/if}
+
+<!-- Move Dialog -->
+{#if moveDialogOpen}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="m3-dialog-backdrop" onclick={(e) => { if (e.target === e.currentTarget) moveDialogOpen = false; }}>
+		<div class="m3-dialog max-w-sm">
+			<div class="px-6 pt-6 pb-4">
+				<h3 class="m3-title-medium text-on-surface mb-1">Move to</h3>
+				<p class="m3-body-small text-on-surface-variant">{moveFileIds.length} item{moveFileIds.length !== 1 ? 's' : ''} selected</p>
+			</div>
+			<div class="px-3 pb-2 max-h-64 overflow-y-auto">
+				{#if moveFolders.length === 0}
+					<p class="px-3 py-4 m3-body-medium text-on-surface-variant text-center">No folders available</p>
+				{:else}
+					{#each moveFolders as folder, i (folder.path)}
+						{#if i > 0 && folder.path !== '/' && !moveFolders[i-1].path.startsWith('/')}<hr class="m3-divider my-1">{/if}
+						<button
+							onclick={() => moveToPath(moveFileIds, folder.path)}
+							class="m3-list-item w-full text-left rounded-xl"
+						>
+							<div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 {folder.path === '/' || data.currentPath.split('/').filter(Boolean).length === 1 && i === 0 ? 'bg-primary/10' : 'bg-surface-container-highest'}">
+								<span class="material-symbols-outlined text-[20px] {folder.path === '/' || i === 0 && data.currentPath !== '/' ? 'text-primary' : 'text-on-surface-variant'}" style="font-variation-settings: 'FILL' 1;">
+									{folder.path === '/' ? 'home' : i === 0 && data.currentPath !== '/' ? 'arrow_upward' : 'folder'}
+								</span>
+							</div>
+							<div class="m3-list-item-content">
+								<span class="m3-body-medium text-on-surface">{folder.name}</span>
+								<span class="m3-label-small text-on-surface-variant">{folder.path}</span>
+							</div>
+						</button>
+					{/each}
+				{/if}
+			</div>
+			<div class="px-6 py-4 flex justify-end">
+				<button onclick={() => moveDialogOpen = false} class="m3-btn m3-btn-text">Cancel</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Keyboard Shortcuts -->
+{#if showShortcuts}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="m3-dialog-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showShortcuts = false; }}>
+		<div class="m3-dialog max-w-md">
+			<div class="px-6 pt-6 pb-3 flex items-center justify-between">
+				<h3 class="m3-title-medium text-on-surface">Keyboard shortcuts</h3>
+				<button onclick={() => showShortcuts = false} class="m3-icon-btn !w-8 !h-8" aria-label="Close">
+					<span class="material-symbols-outlined text-lg">close</span>
+				</button>
+			</div>
+			<div class="px-6 pb-6 space-y-4">
+				<div>
+					<p class="m3-label-medium text-on-surface-variant mb-2">Selection</p>
+					<div class="space-y-1.5">
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Select all</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+A</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Deselect all</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
+					</div>
+				</div>
+				<hr class="m3-divider">
+				<div>
+					<p class="m3-label-medium text-on-surface-variant mb-2">File operations</p>
+					<div class="space-y-1.5">
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Upload files</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+U</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Delete selected</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Delete</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Open / Preview</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Double-click</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Context menu</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Right-click</kbd></div>
+					</div>
+				</div>
+				<hr class="m3-divider">
+				<div>
+					<p class="m3-label-medium text-on-surface-variant mb-2">Navigation</p>
+					<div class="space-y-1.5">
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Show shortcuts</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">?</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Close dialog</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	table tr td { transition: background-color 0.15s ease-out; }

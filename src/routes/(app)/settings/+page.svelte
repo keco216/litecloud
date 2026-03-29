@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import type { PageData } from './$types';
 	let { data }: { data: PageData } = $props();
+	let confirmDisable2FA = $state(false);
 
 	let totpEnabled = $state(false);
 	$effect(() => { totpEnabled = data.totpEnabled; });
@@ -39,7 +41,7 @@
 
 	async function startSetup() { setupLoading = true; const r = await fetch('/api/auth/totp/setup', { method: 'POST' }); if (r.ok) { const d = await r.json(); qrCode = d.qr; secretKey = d.secret; showSetup = true; } setupLoading = false; }
 	async function confirmSetup() { verifyError = ''; const r = await fetch('/api/auth/totp/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: verifyCode, mode: 'setup' }) }); if (r.ok) { totpEnabled = true; showSetup = false; qrCode = ''; secretKey = ''; verifyCode = ''; } else { verifyError = 'Invalid code.'; verifyCode = ''; } }
-	async function disable2FA() { if (!confirm('Disable 2FA?')) return; const r = await fetch('/api/auth/totp/disable', { method: 'POST' }); if (r.ok) totpEnabled = false; }
+	async function disable2FA() { const r = await fetch('/api/auth/totp/disable', { method: 'POST' }); if (r.ok) { totpEnabled = false; confirmDisable2FA = false; } }
 </script>
 
 <svelte:head><title>Settings — LiteCloud</title></svelte:head>
@@ -101,7 +103,7 @@
 			<p class="text-sm text-on-surface-variant mb-3">2FA is active. You need your authenticator app to sign in.</p>
 			<div class="flex items-center gap-3">
 				<span class="m3-chip !border-primary/30 !text-primary"><span class="material-symbols-outlined !text-[14px]">check_circle</span> Enabled</span>
-				<button onclick={disable2FA} class="m3-btn m3-btn-text !text-error !h-8 text-xs">Disable</button>
+				<button onclick={() => confirmDisable2FA = true} class="m3-btn m3-btn-text !text-error !h-8 text-xs">Disable</button>
 			</div>
 		{:else if showSetup}
 			<div class="space-y-4">
@@ -171,3 +173,13 @@
 		<p class="text-xs text-on-surface-variant mt-2">Use your LiteCloud email and password.</p>
 	</div>
 </div>
+
+<ConfirmDialog
+	open={confirmDisable2FA}
+	title="Disable 2FA"
+	message="You will no longer need an authenticator app to sign in. This makes your account less secure."
+	confirmLabel="Disable"
+	danger={true}
+	onconfirm={disable2FA}
+	oncancel={() => confirmDisable2FA = false}
+/>

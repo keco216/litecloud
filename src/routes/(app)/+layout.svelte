@@ -24,6 +24,7 @@
 	}
 
 	const storagePct = $derived(Math.min(100, Math.round(((data.storageUsed ?? 0) / (data.storageQuota ?? 1073741824)) * 100)));
+	const quotaColor = $derived(storagePct >= 90 ? 'error' : storagePct >= 75 ? 'tertiary' : 'primary');
 
 	type NavItem = { href: string; label: string; icon: string; match: (p: string) => boolean };
 	const nav: NavItem[] = [
@@ -32,6 +33,10 @@
 		{ href: '/shares', label: 'Shared', icon: 'group', match: (p) => p === '/shares' },
 		{ href: '/settings', label: 'Settings', icon: 'settings', match: (p) => p === '/settings' },
 	];
+
+	// Scroll-aware top app bar
+	let scrolled = $state(false);
+	function onContentScroll(e: Event) { scrolled = (e.target as HTMLElement).scrollTop > 8; }
 
 	function triggerUpload() {
 		if (!$page.url.pathname.startsWith('/files')) {
@@ -81,14 +86,22 @@
 			{/each}
 		</nav>
 
-		<!-- Storage -->
+		<!-- Storage (M3 quota warning states) -->
 		<div class="mx-3 mb-3 px-3 py-2.5 rounded-xl hover:bg-surface-container-high/50 transition-colors duration-200 group">
 			<div class="flex items-center gap-2 mb-1.5">
-				<span class="material-symbols-outlined text-on-surface-variant text-[18px] group-hover:text-primary transition-colors">cloud</span>
-				<span class="m3-label-medium text-on-surface-variant group-hover:text-on-surface transition-colors">Storage</span>
+				<span class="material-symbols-outlined text-[18px] transition-colors
+					{quotaColor === 'error' ? 'text-error' : quotaColor === 'tertiary' ? 'text-tertiary' : 'text-on-surface-variant group-hover:text-primary'}">
+					{storagePct >= 90 ? 'warning' : 'cloud'}
+				</span>
+				<span class="m3-label-medium transition-colors
+					{quotaColor === 'error' ? 'text-error' : quotaColor === 'tertiary' ? 'text-tertiary' : 'text-on-surface-variant group-hover:text-on-surface'}">
+					{storagePct >= 90 ? 'Storage almost full' : 'Storage'}
+				</span>
 			</div>
 			<div class="w-full h-1 rounded-full bg-surface-container-highest mb-1.5">
-				<div class="h-1 rounded-full bg-primary transition-all duration-300" style="width: {storagePct}%"></div>
+				<div class="h-1 rounded-full transition-all duration-300
+					{quotaColor === 'error' ? 'bg-error' : quotaColor === 'tertiary' ? 'bg-tertiary' : 'bg-primary'}"
+					style="width: {storagePct}%"></div>
 			</div>
 			<p class="m3-label-small text-on-surface-variant">{formatFileSize(data.storageUsed ?? 0)} of {formatFileSize(data.storageQuota ?? 1073741824)} used</p>
 		</div>
@@ -131,8 +144,9 @@
 	<!-- ═══ Main content ═══ -->
 	<main class="md:ml-64 flex-1 flex flex-col h-full bg-surface-container-lowest md:rounded-l-[2rem] mt-14 md:mt-0">
 
-		<!-- Top bar -->
-		<header class="h-16 sticky top-0 z-30 flex items-center justify-between px-4 bg-surface-container-lowest">
+		<!-- Top bar (M3 lift-on-scroll) -->
+		<header class="h-16 sticky top-0 z-30 flex items-center justify-between px-4 transition-all duration-200
+			{scrolled ? 'bg-surface-container shadow-[var(--m3-elevation-2)]' : 'bg-surface-container-lowest'}">
 			<!-- Search -->
 			<div class="flex-1 max-w-2xl relative">
 				<div class="m3-search-bar">
@@ -197,7 +211,7 @@
 		</header>
 
 		<!-- Page content -->
-		<div class="flex-1 overflow-y-auto">
+		<div class="flex-1 overflow-y-auto" onscroll={onContentScroll}>
 			{@render children()}
 		</div>
 	</main>

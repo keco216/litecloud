@@ -23,10 +23,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const nodeStream = getFileStream(locals.user.id, file.id, file.name);
 	const webStream = Readable.toWeb(nodeStream) as ReadableStream;
 
+	const inline = url.searchParams.has('inline');
+	const disposition = inline ? 'inline' : `attachment; filename="${encodeURIComponent(file.name)}"`;
+
 	return new Response(webStream, {
 		headers: {
 			'Content-Type': file.mimeType || 'application/octet-stream',
-			'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
+			'Content-Disposition': disposition,
 			'Content-Length': String(file.size)
 		}
 	});
