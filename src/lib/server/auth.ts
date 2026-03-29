@@ -8,12 +8,23 @@ import type { Cookies } from '@sveltejs/kit';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const SALT_ROUNDS = 12;
 
+function getStorageQuota(): number {
+	const env = process.env.STORAGE_QUOTA;
+	if (!env) return 1073741824; // 1 GB default
+	const val = env.toUpperCase().trim();
+	const num = parseFloat(val);
+	if (val.endsWith('TB')) return num * 1024 * 1024 * 1024 * 1024;
+	if (val.endsWith('GB')) return num * 1024 * 1024 * 1024;
+	if (val.endsWith('MB')) return num * 1024 * 1024;
+	return parseInt(env) || 1073741824;
+}
+
 export async function createUser(email: string, password: string) {
 	const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 	const id = nanoid();
 	const now = new Date();
 
-	db.insert(users).values({ id, email, passwordHash, createdAt: now }).run();
+	db.insert(users).values({ id, email, passwordHash, storageQuota: getStorageQuota(), createdAt: now }).run();
 
 	return { id, email };
 }
