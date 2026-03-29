@@ -1,0 +1,41 @@
+import { fail, redirect } from '@sveltejs/kit';
+import { createUser, createSession } from '$lib/server/auth';
+import type { Actions, PageServerLoad } from './$types';
+
+export const load: PageServerLoad = async ({ locals }) => {
+	if (locals.user) redirect(302, '/files');
+};
+
+export const actions: Actions = {
+	default: async ({ request, cookies }) => {
+		const data = await request.formData();
+		const email = data.get('email')?.toString().trim();
+		const password = data.get('password')?.toString();
+		const confirm = data.get('confirm')?.toString();
+
+		if (!email || !password || !confirm) {
+			return fail(400, { error: 'All fields are required.', email });
+		}
+
+		if (password.length < 8) {
+			return fail(400, { error: 'Password must be at least 8 characters.', email });
+		}
+
+		if (password !== confirm) {
+			return fail(400, { error: 'Passwords do not match.', email });
+		}
+
+		try {
+			const user = await createUser(email, password);
+			createSession(user.id, cookies);
+		} catch (e: any) {
+			if (e?.message?.includes('UNIQUE constraint')) {
+				return fail(409, { error: 'An account with this email already exists.', email });
+			}
+			throw e;
+		}
+
+		// SECURITY: Never return password. Client retains it from form input.
+		return { setupEncryption: true };
+	}
+};

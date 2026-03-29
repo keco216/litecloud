@@ -1,0 +1,19 @@
+# Replace cloud.example.com with your domain
+# Caddy automatically provisions HTTPS via Let's Encrypt
+
+cloud.example.com {
+    reverse_proxy litecloud:3000
+
+    # WebDAV needs large uploads
+    request_body {
+        max_size 10GB
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

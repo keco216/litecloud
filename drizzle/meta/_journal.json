@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1774700559439,
+      "tag": "0000_productive_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774731306919,
+      "tag": "0001_thin_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1774738262133,
+      "tag": "0002_striped_liz_osborn",
+      "breakpoints": true
+    }
+  ]
+}

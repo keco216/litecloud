@@ -1,0 +1,27 @@
+{
+  "productName": "LiteCloud Sync",
+  "version": "0.1.0",
+  "identifier": "io.litecloud.sync",
+  "build": {
+    "frontendDist": "../"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "LiteCloud Sync",
+        "width": 450,
+        "height": 550,
+        "resizable": false,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

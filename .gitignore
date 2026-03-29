@@ -1,0 +1,43 @@
+node_modules
+desktop/node_modules
+desktop/src-tauri/target
+desktop/src-tauri/gen
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Data
+/data/
+
+# MCP config (contains API keys)
+.mcp.json
+
+# Claude config
+.claude/
+
+# Stitch
+.stitch/
+stitch-exports/
+
+# Screenshots / images
+image.png
+SKILL.md

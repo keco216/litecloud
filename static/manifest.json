@@ -1,0 +1,13 @@
+{
+  "name": "LiteCloud",
+  "short_name": "LiteCloud",
+  "description": "Your family's private cloud",
+  "start_url": "/files",
+  "display": "standalone",
+  "background_color": "#f0f4f9",
+  "theme_color": "#1a73e8",
+  "orientation": "any",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

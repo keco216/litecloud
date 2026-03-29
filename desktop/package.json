@@ -1,0 +1,21 @@
+{
+  "name": "litecloud-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "sync": "node --loader ts-node/esm src/sync-cli.ts"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "exifr": "^7.1.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}
