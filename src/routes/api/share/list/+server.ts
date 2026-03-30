@@ -15,6 +15,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			fileName: files.name,
 			fileSize: files.size,
 			fileMimeType: files.mimeType,
+			isFolder: files.isFolder,
 			hasPassword: shares.password,
 			expiresAt: shares.expiresAt,
 			downloadCount: shares.downloadCount,
@@ -28,6 +29,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	const result = userShares.map((s) => ({
 		...s,
+		isFolder: !!s.isFolder,
 		hasPassword: !!s.hasPassword,
 		expired: s.expiresAt ? new Date(s.expiresAt) < new Date() : false,
 		exhausted: s.maxDownloads ? (s.downloadCount ?? 0) >= s.maxDownloads : false

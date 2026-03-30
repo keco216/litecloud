@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { unlockMasterKey, storeMasterKey } from '$lib/crypto';
+	import { t } from '$lib/i18n/index.svelte';
 	let code = $state(''); let errorMsg = $state(''); let verifying = $state(false);
 
 	async function verify() {
@@ -7,7 +8,7 @@
 		verifying = true; errorMsg = '';
 		try {
 			const res = await fetch('/api/auth/totp/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, mode: 'login' }) });
-			if (!res.ok) { errorMsg = 'Invalid code'; verifying = false; code = ''; return; }
+			if (!res.ok) { errorMsg = t('totp.invalidCode'); verifying = false; code = ''; return; }
 			const email = sessionStorage.getItem('lc-pending-email') || '';
 			const pw = sessionStorage.getItem('lc-pending-pw') || '';
 			sessionStorage.removeItem('lc-pending-email'); sessionStorage.removeItem('lc-pending-pw');
@@ -22,7 +23,7 @@
 	}
 </script>
 
-<svelte:head><title>Two-Factor — LiteCloud</title></svelte:head>
+<svelte:head><title>{t('totp.title')} — {t('app.name')}</title></svelte:head>
 
 <div class="min-h-screen bg-surface-container-low flex flex-col">
 	<header class="fixed top-0 w-full bg-surface-container-low flex items-center px-6 py-4 z-50">
@@ -37,8 +38,8 @@
 				<div class="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center mb-4">
 					<span class="material-symbols-outlined text-4xl text-primary">security</span>
 				</div>
-				<h1 class="text-2xl font-bold tracking-tight text-on-surface">Verification</h1>
-				<p class="text-sm text-on-surface-variant mt-1">Enter your authenticator code</p>
+				<h1 class="text-2xl font-bold tracking-tight text-on-surface">{t('totp.title')}</h1>
+				<p class="text-sm text-on-surface-variant mt-1">{t('totp.subtitle')}</p>
 			</div>
 
 			{#if errorMsg}
@@ -52,11 +53,11 @@
 
 			<button onclick={verify} disabled={code.length !== 6 || verifying} class="m3-btn m3-btn-filled w-full !h-12">
 				<span class="material-symbols-outlined text-lg">check</span>
-				{verifying ? 'Verifying...' : 'Verify'}
+				{verifying ? t('totp.verifying') : t('totp.verify')}
 			</button>
 
 			<p class="text-center m3-body-medium text-on-surface-variant mt-6">
-				<a href="/login" class="text-primary font-medium hover:underline">Back to sign in</a>
+				<a href="/login" class="text-primary font-medium hover:underline">{t('totp.backToSignIn')}</a>
 			</p>
 		</div>
 	</main>

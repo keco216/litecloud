@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { unlockMasterKey, storeMasterKey } from '$lib/crypto';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { ActionData } from './$types';
 	let { form }: { form: ActionData } = $props();
 
@@ -32,7 +33,7 @@
 	}
 </script>
 
-<svelte:head><title>Sign in — LiteCloud</title></svelte:head>
+<svelte:head><title>{t('auth.signIn')} — {t('app.name')}</title></svelte:head>
 
 <div class="bg-surface-container-low min-h-screen flex flex-col">
 	<!-- Top bar -->
@@ -51,14 +52,14 @@
 				<div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-5">
 					<span class="material-symbols-outlined text-[32px] text-primary">cloud</span>
 				</div>
-				<h1 class="m3-headline-small text-on-surface">Sign in</h1>
-				<p class="m3-body-medium text-on-surface-variant mt-1">to continue to LiteCloud</p>
+				<h1 class="m3-headline-small text-on-surface">{t('auth.signIn')}</h1>
+				<p class="m3-body-medium text-on-surface-variant mt-1">{t('auth.continueTo')}</p>
 			</div>
 
 			{#if unlocking}
 				<div class="py-12 text-center">
 					<div class="m3-progress-circular m3-progress-circular-sm mx-auto mb-3"></div>
-					<p class="m3-body-medium text-on-surface-variant">Unlocking encryption...</p>
+					<p class="m3-body-medium text-on-surface-variant">{t('auth.unlocking')}</p>
 				</div>
 			{:else}
 				<form method="POST" class="space-y-5">
@@ -70,21 +71,21 @@
 					{/if}
 
 					<div>
-						<label for="email" class="m3-label">Email</label>
+						<label for="email" class="m3-label">{t('auth.email')}</label>
 						<input
 							type="email" id="email" name="email" value={form?.email ?? ''} required autocomplete="email"
-							placeholder="you@example.com"
+							placeholder={t('auth.emailPlaceholder')}
 							class="m3-input !rounded-lg"
 						/>
 					</div>
 
 					<div>
-						<label for="password" class="m3-label">Password</label>
+						<label for="password" class="m3-label">{t('auth.password')}</label>
 						<div class="relative">
 							<input
 								type={showPassword ? 'text' : 'password'} id="password" name="password" required autocomplete="current-password"
 								oninput={(e: Event) => { lastPassword = (e.target as HTMLInputElement).value; }}
-								placeholder="Enter your password"
+								placeholder={t('auth.passwordPlaceholder')}
 								class="m3-input !rounded-lg !pr-12"
 							/>
 							<button type="button" onclick={() => showPassword = !showPassword} tabindex={-1}
@@ -96,13 +97,13 @@
 
 					<button type="submit"
 						class="m3-btn m3-btn-filled w-full !h-11 !rounded-full mt-4">
-						Sign in
+						{t('auth.signIn')}
 					</button>
 				</form>
 
 				<div class="mt-8 pt-6 border-t border-outline-variant/20 text-center m3-body-medium">
-					<span class="text-on-surface-variant">No account?</span>
-					<a class="text-primary font-medium hover:underline ml-1" href="/register">Create account</a>
+					<span class="text-on-surface-variant">{t('auth.noAccount')}</span>
+					<a class="text-primary font-medium hover:underline ml-1" href="/register">{t('auth.createAccount')}</a>
 				</div>
 			{/if}
 		</div>

@@ -10,12 +10,13 @@
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import { loadMasterKey, encryptFile, decryptFile } from '$lib/crypto';
 	import { browser } from '$app/environment';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	// State
-	let shareFileId = $state(''); let shareFileName = $state(''); let shareOpen = $state(false);
+	let shareFileId = $state(''); let shareFileName = $state(''); let shareIsFolder = $state(false); let shareOpen = $state(false);
 	let previewOpen = $state(false);
 	let previewFile = $state({ id: '', name: '', size: 0, mimeType: '', encrypted: false, iv: null as string | null });
 
@@ -48,16 +49,16 @@
 
 	function getCtxMenuItems(file: typeof data.files[0]) {
 		const items: { icon: string; label: string; action: () => void; danger?: boolean; divider?: boolean }[] = [];
-		if (file.isFolder) items.push({ icon: 'folder_open', label: 'Open', action: () => openItem(file) });
-		else items.push({ icon: 'visibility', label: 'Preview', action: () => openPreview(file) });
-		items.push({ icon: 'edit', label: 'Rename', action: () => startRename(file.id, file.name) });
-		items.push({ icon: 'drive_file_move', label: 'Move to', action: () => openMoveDialog([file.id]) });
+		if (file.isFolder) items.push({ icon: 'folder_open', label: t('files.open'), action: () => openItem(file) });
+		else items.push({ icon: 'visibility', label: t('files.preview'), action: () => openPreview(file) });
+		items.push({ icon: 'edit', label: t('files.rename'), action: () => startRename(file.id, file.name) });
+		items.push({ icon: 'drive_file_move', label: t('files.moveTo'), action: () => openMoveDialog([file.id]) });
+		items.push({ icon: 'share', label: t('files.share'), action: () => openShare(file.id, file.name, file.isFolder ?? false) });
 		if (!file.isFolder) {
-			items.push({ icon: 'share', label: 'Share', action: () => openShare(file.id, file.name) });
-			items.push({ icon: 'download', label: 'Download', action: () => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null) });
+			items.push({ icon: 'download', label: t('files.download'), action: () => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null) });
 		}
 		items.push({ icon: '', label: '', action: () => {}, divider: true });
-		items.push({ icon: 'delete', label: 'Delete', action: () => deleteFiles([file.id]), danger: true });
+		items.push({ icon: 'delete', label: t('files.delete'), action: () => deleteFiles([file.id]), danger: true });
 		return items;
 	}
 	let showNewFolder = $state(false);
@@ -86,7 +87,7 @@
 	// Breadcrumb segments
 	const breadcrumbs = $derived.by(() => {
 		const parts = data.currentPath.split('/').filter(Boolean);
-		const crumbs: { name: string; href: string }[] = [{ name: 'My Files', href: '/files' }];
+		const crumbs: { name: string; href: string }[] = [{ name: t('nav.files'), href: '/files' }];
 		let acc = '';
 		for (const p of parts) { acc += '/' + p; crumbs.push({ name: p, href: '/files' + acc }); }
 		return crumbs;
@@ -110,7 +111,8 @@
 	// Upload with encryption + progress
 	async function uploadFiles(fileList: FileList | null) {
 		if (!fileList?.length) return;
-		const masterKey = await loadMasterKey();
+		let masterKey: CryptoKey | null = null;
+		try { masterKey = await loadMasterKey(); } catch { /* no encryption */ }
 		for (const file of fileList) {
 			const item: UploadItem = { name: file.name, size: file.size, progress: 0, done: false };
 			uploads = [...uploads, item];
@@ -140,7 +142,7 @@
 				xhr.onload = () => { uploads = uploads.map(u => u.name === file.name ? { ...u, progress: 100, done: true, error: xhr.status >= 400 ? 'Failed' : undefined } : u); invalidateAll(); setTimeout(() => { uploads = uploads.filter(u => !(u.name === file.name && u.done)); }, 3000); };
 				xhr.onerror = () => { uploads = uploads.map(u => u.name === file.name ? { ...u, done: true, error: 'Network error' } : u); };
 				xhr.send(fd);
-			} catch { uploads = uploads.map(u => u.name === file.name ? { ...u, done: true, error: 'Encryption failed' } : u); }
+			} catch { uploads = uploads.map(u => u.name === file.name ? { ...u, done: true, error: 'Upload failed' } : u); }
 		}
 	}
 
@@ -156,21 +158,24 @@
 		if (res.ok) {
 			selected = new Set();
 			await invalidateAll();
-			(window as any).__lc_toast?.(`${count} item${count !== 1 ? 's' : ''} deleted`, 'info');
+			(window as any).__lc_toast?.(t('files.itemsDeleted', { count: String(count) }), 'info');
 		}
 	}
 
 	async function downloadFile(fileId: string, fileName: string, isEncrypted: boolean, iv: string | null) {
 		if (!isEncrypted || !iv) { window.location.href = `/api/files/download?id=${fileId}`; return; }
-		const mk = await loadMasterKey();
+		let mk: CryptoKey | null = null;
+		try { mk = await loadMasterKey(); } catch { /* ignore */ }
 		if (!mk) { window.location.href = `/api/files/download?id=${fileId}`; return; }
-		const res = await fetch(`/api/files/download?id=${fileId}`);
-		if (!res.ok) return;
-		const ct = await res.arrayBuffer();
-		const pt = await decryptFile(ct, iv, mk);
-		const a = document.createElement('a');
-		a.href = URL.createObjectURL(new Blob([pt]));
-		a.download = fileName; a.click(); URL.revokeObjectURL(a.href);
+		try {
+			const res = await fetch(`/api/files/download?id=${fileId}`);
+			if (!res.ok) return;
+			const ct = await res.arrayBuffer();
+			const pt = await decryptFile(ct, iv, mk);
+			const a = document.createElement('a');
+			a.href = URL.createObjectURL(new Blob([pt]));
+			a.download = fileName; a.click(); URL.revokeObjectURL(a.href);
+		} catch { window.location.href = `/api/files/download?id=${fileId}`; }
 	}
 
 	function startRename(id: string, name: string) { renamingId = id; renameValue = name; setTimeout(() => renameInput?.select(), 0); }
@@ -194,7 +199,7 @@
 		previewFile = { id: file.id, name: file.name, size: file.size, mimeType: m, encrypted: file.encrypted ?? false, iv: file.iv ?? null };
 		previewOpen = true;
 	}
-	function openShare(id: string, name: string) { shareFileId = id; shareFileName = name; shareOpen = true; }
+	function openShare(id: string, name: string, folder = false) { shareFileId = id; shareFileName = name; shareIsFolder = folder; shareOpen = true; }
 
 	// Move files
 	let dropTargetId: string | null = $state(null);
@@ -347,18 +352,18 @@
 						<span class="material-symbols-outlined">drive_file_move</span>
 					</button>
 				</Tooltip>
-				<Tooltip text="Delete {selected.size} selected">
+				<Tooltip text={t('files.deleteSelected', { count: String(selected.size) })}>
 					<button onclick={() => deleteFiles([...selected])} class="m3-icon-btn !text-error" aria-label="Delete selected">
 						<span class="material-symbols-outlined">delete</span>
 					</button>
 				</Tooltip>
 			{/if}
-			<Tooltip text="New folder">
+			<Tooltip text={t('files.newFolder')}>
 				<button onclick={openNewFolder} class="m3-icon-btn" aria-label="New folder">
 					<span class="material-symbols-outlined">create_new_folder</span>
 				</button>
 			</Tooltip>
-			<Tooltip text="Upload files">
+			<Tooltip text={t('files.uploadBtn')}>
 				<button onclick={() => { fileInput?.click(); }} class="m3-icon-btn" aria-label="Upload files">
 					<span class="material-symbols-outlined">upload_file</span>
 				</button>
@@ -373,8 +378,8 @@
 		<div class="fixed inset-0 bg-primary/5 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-none">
 			<div class="bg-surface-container-lowest rounded-3xl shadow-xl px-12 py-10 text-center">
 				<span class="material-symbols-outlined text-5xl text-primary mb-3">cloud_upload</span>
-				<p class="text-lg font-medium text-on-surface">Drop files to upload</p>
-				<p class="text-sm text-on-surface-variant mt-1">to {data.currentPath === '/' ? 'My Files' : data.currentPath.split('/').pop()}</p>
+				<p class="text-lg font-medium text-on-surface">{t('files.dropHere')}</p>
+				<p class="text-sm text-on-surface-variant mt-1">{t('files.dropSubtitle')}</p>
 			</div>
 		</div>
 	{/if}
@@ -383,11 +388,11 @@
 	{#if showNewFolder}
 		<div class="bg-surface-container-low rounded-2xl p-4 flex items-center gap-3 mb-4">
 			<span class="material-symbols-outlined text-on-surface-variant" style="font-variation-settings: 'FILL' 1;">folder</span>
-			<input bind:this={folderInput} bind:value={newFolderName} type="text" placeholder="Folder name"
+			<input bind:this={folderInput} bind:value={newFolderName} type="text" placeholder={t('files.folderName')}
 				class="flex-1 text-sm border-none bg-transparent outline-none placeholder:text-outline"
 				onkeydown={(e) => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') showNewFolder = false; }} />
-			<button onclick={createFolder} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 text-xs">Create</button>
-			<button onclick={() => showNewFolder = false} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 text-xs !text-on-surface-variant">Cancel</button>
+			<button onclick={createFolder} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 text-xs">{t('files.create')}</button>
+			<button onclick={() => showNewFolder = false} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 text-xs !text-on-surface-variant">{t('confirm.cancel')}</button>
 		</div>
 	{/if}
 
@@ -395,10 +400,10 @@
 	{#if sortedFiles.length === 0 && !showNewFolder}
 		<div class="text-center py-24">
 			<span class="material-symbols-outlined text-6xl text-outline-variant mb-4">cloud_upload</span>
-			<p class="text-lg font-medium text-on-surface">{data.currentPath === '/' ? 'Your cloud is empty' : 'This folder is empty'}</p>
-			<p class="text-sm text-on-surface-variant mt-1">Drag files here or click Upload to get started</p>
+			<p class="text-lg font-medium text-on-surface">{t('files.emptyTitle')}</p>
+			<p class="text-sm text-on-surface-variant mt-1">{t('files.emptySubtitle')}</p>
 			<button onclick={() => fileInput?.click()} class="m3-btn m3-btn-filled mt-6">
-				<span class="material-symbols-outlined text-[18px]">upload</span> Upload files
+				<span class="material-symbols-outlined text-[18px]">upload</span> {t('files.uploadBtn')}
 			</button>
 		</div>
 
@@ -413,32 +418,39 @@
 
 	<!-- LIST VIEW (Google Drive style) -->
 	{:else if viewMode === 'list'}
-		<table class="w-full text-left border-collapse">
+		<table class="w-full text-left table-fixed border-collapse">
+			<colgroup>
+				<col class="w-12" />
+				<col />
+				<col class="w-32 hidden lg:table-column" />
+				<col class="w-20" />
+				<col class="w-40" />
+			</colgroup>
 			<thead class="sticky top-0 bg-surface-container-lowest z-20">
 				<tr class="border-b border-outline-variant/30">
-					<th class="py-2.5 pl-4 w-12">
+					<th class="py-2.5 pl-4">
 						<input type="checkbox" checked={allSelected} onchange={toggleAll}
 							class="m3-checkbox" />
 					</th>
 					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('name')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
-							Name
+							{t('files.name')}
 							{#if sortKey === 'name'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
 						</span>
 					</th>
 					<th class="py-2.5 hidden lg:table-cell cursor-pointer select-none" onclick={() => cycleSortDir('updatedAt')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
-							Modified
+							{t('files.modified')}
 							{#if sortKey === 'updatedAt'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
 						</span>
 					</th>
 					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('size')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
-							Size
+							{t('files.size')}
 							{#if sortKey === 'size'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
 						</span>
 					</th>
-					<th class="py-2.5 w-36"></th>
+					<th class="py-2.5"></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -461,26 +473,26 @@
 							<input type="checkbox" checked={selected.has(file.id)} onchange={() => toggleSelect(file.id)}
 								class="m3-checkbox opacity-0 group-hover:opacity-100 transition-opacity {selected.has(file.id) ? '!opacity-100' : ''}" />
 						</td>
-						<td class="py-3">
+						<td class="py-3 overflow-hidden max-w-0">
 							{#if renamingId === file.id}
-								<div class="flex items-center gap-3">
+								<div class="flex items-center gap-3 overflow-hidden">
 									<div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background: {icon.color}12;">
 										<span class="material-symbols-outlined text-[22px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
 									</div>
 									<input bind:this={renameInput} bind:value={renameValue} type="text"
-										class="flex-1 m3-input !h-9 !text-sm !rounded-lg"
+										class="min-w-0 m3-input !h-9 !text-sm !rounded-lg max-w-xs"
 										onkeydown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') renamingId = null; }}
 										onblur={submitRename} />
 								</div>
 							{:else}
-								<button class="flex items-center gap-3 w-full text-left cursor-pointer" onclick={() => { if (file.isFolder) openItem(file); }}>
+								<button class="flex items-center gap-3 w-full text-left cursor-pointer overflow-hidden" onclick={() => { if (file.isFolder) openItem(file); }}>
 									<div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-150 group-hover:scale-105" style="background: {icon.color}{file.isFolder ? '15' : '0a'};">
 										<span class="material-symbols-outlined text-[22px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
 									</div>
-									<div class="min-w-0">
+									<div class="min-w-0 overflow-hidden">
 										<span class="m3-body-medium font-medium text-on-surface block truncate">{file.name}</span>
 										<span class="m3-label-small text-on-surface-variant">
-											{#if file.isFolder}Folder{:else}{file.mimeType?.split('/').pop()?.toUpperCase() || 'File'}{#if file.encrypted}&nbsp;&middot;&nbsp;<span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">lock</span>Encrypted</span>{/if}{/if}
+											{#if file.isFolder}{t('files.folder')}{:else}{file.mimeType?.split('/').pop()?.toUpperCase() || 'File'}{#if file.encrypted}&nbsp;&middot;&nbsp;<span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">lock</span></span>{/if}{/if}
 										</span>
 									</div>
 								</button>
@@ -491,29 +503,29 @@
 						<td class="py-3 pr-4 rounded-r-xl text-right">
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 justify-end" ondblclick={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
-								<Tooltip text="Rename">
+								<Tooltip text={t('files.rename')}>
 									<button onclick={() => startRename(file.id, file.name)} class="m3-icon-btn !w-8 !h-8" aria-label="Rename">
 										<span class="material-symbols-outlined text-lg">edit</span>
 									</button>
 								</Tooltip>
-								<Tooltip text="Move to">
+								<Tooltip text={t('files.moveTo')}>
 									<button onclick={() => openMoveDialog([file.id])} class="m3-icon-btn !w-8 !h-8" aria-label="Move to">
 										<span class="material-symbols-outlined text-lg">drive_file_move</span>
 									</button>
 								</Tooltip>
+								<Tooltip text={t('files.share')}>
+									<button onclick={() => openShare(file.id, file.name, file.isFolder ?? false)} class="m3-icon-btn !w-8 !h-8" aria-label="Share">
+										<span class="material-symbols-outlined text-lg">share</span>
+									</button>
+								</Tooltip>
 								{#if !file.isFolder}
-									<Tooltip text="Share">
-										<button onclick={() => openShare(file.id, file.name)} class="m3-icon-btn !w-8 !h-8" aria-label="Share">
-											<span class="material-symbols-outlined text-lg">share</span>
-										</button>
-									</Tooltip>
-									<Tooltip text="Download">
+									<Tooltip text={t('files.download')}>
 										<button onclick={() => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null)} class="m3-icon-btn !w-8 !h-8" aria-label="Download">
 											<span class="material-symbols-outlined text-lg">download</span>
 										</button>
 									</Tooltip>
 								{/if}
-								<Tooltip text="Delete">
+								<Tooltip text={t('files.delete')}>
 									<button onclick={() => deleteFiles([file.id])} class="m3-icon-btn !w-8 !h-8 !text-error" aria-label="Delete">
 										<span class="material-symbols-outlined text-lg">delete</span>
 									</button>
@@ -567,7 +579,7 @@
 </div>
 
 <UploadProgress {uploads} />
-<ShareDialog fileId={shareFileId} fileName={shareFileName} open={shareOpen} onclose={() => shareOpen = false} />
+<ShareDialog fileId={shareFileId} fileName={shareFileName} isFolder={shareIsFolder} open={shareOpen} onclose={() => shareOpen = false} />
 <FilePreview open={previewOpen} fileId={previewFile.id} fileName={previewFile.name} fileSize={previewFile.size} mimeType={previewFile.mimeType} encrypted={previewFile.encrypted} iv={previewFile.iv} onclose={() => previewOpen = false} />
 <ConfirmDialog
 	open={confirmDelete.open}
@@ -588,7 +600,7 @@
 	<div class="m3-dialog-backdrop" onclick={(e) => { if (e.target === e.currentTarget) moveDialogOpen = false; }}>
 		<div class="m3-dialog max-w-sm">
 			<div class="px-6 pt-6 pb-4">
-				<h3 class="m3-title-medium text-on-surface mb-1">Move to</h3>
+				<h3 class="m3-title-medium text-on-surface mb-1">{t('files.moveTitle')}</h3>
 				<p class="m3-body-small text-on-surface-variant">{moveFileIds.length} item{moveFileIds.length !== 1 ? 's' : ''} selected</p>
 			</div>
 			<div class="px-3 pb-2 max-h-64 overflow-y-auto">
@@ -615,7 +627,7 @@
 				{/if}
 			</div>
 			<div class="px-6 py-4 flex justify-end">
-				<button onclick={() => moveDialogOpen = false} class="m3-btn m3-btn-text">Cancel</button>
+				<button onclick={() => moveDialogOpen = false} class="m3-btn m3-btn-text">{t('confirm.cancel')}</button>
 			</div>
 		</div>
 	</div>
@@ -627,7 +639,7 @@
 	<div class="m3-dialog-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showShortcuts = false; }}>
 		<div class="m3-dialog max-w-md">
 			<div class="px-6 pt-6 pb-3 flex items-center justify-between">
-				<h3 class="m3-title-medium text-on-surface">Keyboard shortcuts</h3>
+				<h3 class="m3-title-medium text-on-surface">{t('files.shortcuts')}</h3>
 				<button onclick={() => showShortcuts = false} class="m3-icon-btn !w-8 !h-8" aria-label="Close">
 					<span class="material-symbols-outlined text-lg">close</span>
 				</button>

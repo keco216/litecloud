@@ -26,7 +26,6 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		.get();
 
 	if (!file) error(404, 'File not found');
-	if (file.isFolder) error(400, 'Cannot share folders');
 
 	const id = nanoid();
 	const token = nanoid(21);

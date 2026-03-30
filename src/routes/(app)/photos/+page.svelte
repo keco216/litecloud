@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatFileSize } from '$lib/utils/filesize';
 	import { loadMasterKey, decryptFile } from '$lib/crypto';
+	import { t } from '$lib/i18n/index.svelte';
 
 	type Photo = { id: string; name: string; mimeType: string; size: number; encrypted: boolean; iv: string | null; dateTaken: string | null; createdAt: string; latitude: string | null; longitude: string | null; camera: string | null; width: number | null; height: number | null };
 	let groups: Record<string, Photo[]> = $state({}); let loading = $state(true);
@@ -21,11 +22,11 @@
 	$effect(() => { loadPhotos(); });
 </script>
 
-<svelte:head><title>Photos — LiteCloud</title></svelte:head>
+<svelte:head><title>{t('photos.title')} — {t('app.name')}</title></svelte:head>
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeLightbox(); }} />
 
 <div class="px-8 py-2 space-y-8">
-	<h2 class="m3-headline-small text-on-surface">Photos</h2>
+	<h2 class="m3-headline-small text-on-surface">{t('photos.title')}</h2>
 
 	{#if loading}
 		<div class="text-center py-20">
@@ -34,8 +35,8 @@
 	{:else if Object.keys(groups).length === 0}
 		<div class="text-center py-20">
 			<span class="material-symbols-outlined text-5xl text-outline-variant mb-4">photo_library</span>
-			<p class="text-lg font-medium text-on-surface">No photos yet</p>
-			<p class="text-sm text-on-surface-variant mt-1">Upload images to see them organized by date</p>
+			<p class="text-lg font-medium text-on-surface">{t('photos.emptyTitle')}</p>
+			<p class="text-sm text-on-surface-variant mt-1">{t('photos.emptySubtitle')}</p>
 		</div>
 	{:else}
 		{#each Object.entries(groups).sort(([a], [b]) => b.localeCompare(a)) as [month, photos] (month)}
@@ -86,7 +87,7 @@
 					{#if lightbox.width && lightbox.height}<span>{lightbox.width} x {lightbox.height}</span>{/if}
 					{#if lightbox.camera}<span>{lightbox.camera}</span>{/if}
 					{#if lightbox.latitude && lightbox.longitude}
-						<a href="https://maps.google.com/?q={lightbox.latitude},{lightbox.longitude}" target="_blank" rel="noopener" class="text-inverse-primary hover:underline">Map</a>
+						<a href="https://maps.google.com/?q={lightbox.latitude},{lightbox.longitude}" target="_blank" rel="noopener" class="text-inverse-primary hover:underline">{t('photos.map')}</a>
 					{/if}
 				</div>
 			</div>

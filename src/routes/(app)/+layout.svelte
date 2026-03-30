@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { formatFileSize } from '$lib/utils/filesize';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { t, getLocale } from '$lib/i18n/index.svelte';
 	import type { LayoutData } from './$types';
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
@@ -26,12 +27,12 @@
 	const storagePct = $derived(Math.min(100, Math.round(((data.storageUsed ?? 0) / (data.storageQuota ?? 1073741824)) * 100)));
 	const quotaColor = $derived(storagePct >= 90 ? 'error' : storagePct >= 75 ? 'tertiary' : 'primary');
 
-	type NavItem = { href: string; label: string; icon: string; match: (p: string) => boolean };
+	type NavItem = { href: string; labelKey: string; icon: string; match: (p: string) => boolean };
 	const nav: NavItem[] = [
-		{ href: '/files', label: 'My Files', icon: 'folder', match: (p) => p.startsWith('/files') },
-		{ href: '/photos', label: 'Photos', icon: 'image', match: (p) => p === '/photos' },
-		{ href: '/shares', label: 'Shared', icon: 'group', match: (p) => p === '/shares' },
-		{ href: '/settings', label: 'Settings', icon: 'settings', match: (p) => p === '/settings' },
+		{ href: '/files', labelKey: 'nav.files', icon: 'folder', match: (p) => p.startsWith('/files') },
+		{ href: '/photos', labelKey: 'nav.photos', icon: 'image', match: (p) => p === '/photos' },
+		{ href: '/shares', labelKey: 'nav.shared', icon: 'group', match: (p) => p === '/shares' },
+		{ href: '/settings', labelKey: 'nav.settings', icon: 'settings', match: (p) => p === '/settings' },
 	];
 
 	// Scroll-aware top app bar
@@ -49,16 +50,16 @@
 
 <div class="flex h-screen overflow-hidden bg-surface text-on-surface">
 
-	<!-- ═══ Sidebar ═══ -->
+	<!-- Sidebar -->
 	<aside class="hidden md:flex flex-col w-64 h-full fixed left-0 top-0 bg-surface-container-low z-40">
 
 		<!-- Brand -->
 		<div class="flex items-center gap-3 px-6 pt-5 pb-4">
 			<span class="material-symbols-outlined text-primary text-[28px]">cloud</span>
-			<span class="m3-title-large font-bold text-on-surface tracking-tight">LiteCloud</span>
+			<span class="m3-title-large font-bold text-on-surface tracking-tight">{t('app.name')}</span>
 		</div>
 
-		<!-- + New button (Google Drive style) -->
+		<!-- + New button -->
 		<div class="px-3 mb-2">
 			<button
 				onclick={triggerUpload}
@@ -68,7 +69,7 @@
 					active:scale-[0.98] cursor-pointer transition-all duration-200"
 			>
 				<span class="material-symbols-outlined text-[24px] text-primary">add</span>
-				<span class="m3-label-large">New</span>
+				<span class="m3-label-large">{t('nav.new')}</span>
 			</button>
 		</div>
 
@@ -81,12 +82,12 @@
 					class="m3-nav-item {active ? 'active nav-active' : ''}"
 				>
 					<span class="material-symbols-outlined" style={active ? "font-variation-settings: 'FILL' 1;" : ''}>{item.icon}</span>
-					<span>{item.label}</span>
+					<span>{t(item.labelKey)}</span>
 				</a>
 			{/each}
 		</nav>
 
-		<!-- Storage (M3 quota warning states) -->
+		<!-- Storage -->
 		<div class="mx-3 mb-3 px-3 py-2.5 rounded-xl hover:bg-surface-container-high/50 transition-colors duration-200 group">
 			<div class="flex items-center gap-2 mb-1.5">
 				<span class="material-symbols-outlined text-[18px] transition-colors
@@ -95,7 +96,7 @@
 				</span>
 				<span class="m3-label-medium transition-colors
 					{quotaColor === 'error' ? 'text-error' : quotaColor === 'tertiary' ? 'text-tertiary' : 'text-on-surface-variant group-hover:text-on-surface'}">
-					{storagePct >= 90 ? 'Storage almost full' : 'Storage'}
+					{storagePct >= 90 ? t('storage.almostFull') : t('storage.label')}
 				</span>
 			</div>
 			<div class="w-full h-1 rounded-full bg-surface-container-highest mb-1.5">
@@ -103,29 +104,29 @@
 					{quotaColor === 'error' ? 'bg-error' : quotaColor === 'tertiary' ? 'bg-tertiary' : 'bg-primary'}"
 					style="width: {storagePct}%"></div>
 			</div>
-			<p class="m3-label-small text-on-surface-variant">{formatFileSize(data.storageUsed ?? 0)} of {formatFileSize(data.storageQuota ?? 1073741824)} used</p>
+			<p class="m3-label-small text-on-surface-variant">{t('storage.used', { used: formatFileSize(data.storageUsed ?? 0), total: formatFileSize(data.storageQuota ?? 1073741824) })}</p>
 		</div>
 	</aside>
 
-	<!-- ═══ Mobile header ═══ -->
+	<!-- Mobile header -->
 	<div class="md:hidden fixed top-0 inset-x-0 bg-surface-container-lowest z-40 px-4 h-14 flex items-center justify-between border-b border-outline-variant/20">
 		<button onclick={() => mobileNav = !mobileNav} aria-label="Toggle menu" class="m3-icon-btn !-ml-2">
 			<span class="material-symbols-outlined">menu</span>
 		</button>
-		<span class="m3-title-medium font-bold text-on-surface">LiteCloud</span>
+		<span class="m3-title-medium font-bold text-on-surface">{t('app.name')}</span>
 		<div class="w-8 h-8 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center text-xs font-semibold">
 			{data.user.email[0].toUpperCase()}
 		</div>
 	</div>
 
-	<!-- ═══ Mobile nav overlay (M3 Modal Navigation Drawer) ═══ -->
+	<!-- Mobile nav overlay -->
 	{#if mobileNav}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="md:hidden fixed inset-0 bg-scrim/32 z-50" style="animation: m3-fade-in 200ms ease;" onclick={() => mobileNav = false}>
 			<aside class="w-[280px] h-full bg-surface-container-low flex flex-col rounded-r-2xl shadow-[var(--m3-elevation-1)]" onclick={(e) => e.stopPropagation()}>
 				<div class="flex items-center gap-3 px-6 pt-5 pb-4">
 					<span class="material-symbols-outlined text-primary text-[24px]">cloud</span>
-					<span class="m3-title-large font-bold text-on-surface">LiteCloud</span>
+					<span class="m3-title-large font-bold text-on-surface">{t('app.name')}</span>
 				</div>
 				<nav class="flex-1 space-y-0.5 px-3">
 					{#each nav as item (item.href)}
@@ -133,7 +134,7 @@
 						<a href={item.href} onclick={() => mobileNav = false}
 							class="m3-nav-item {active ? 'active' : ''}">
 							<span class="material-symbols-outlined" style={active ? "font-variation-settings: 'FILL' 1;" : ''}>{item.icon}</span>
-							<span>{item.label}</span>
+							<span>{t(item.labelKey)}</span>
 						</a>
 					{/each}
 				</nav>
@@ -141,10 +142,10 @@
 		</div>
 	{/if}
 
-	<!-- ═══ Main content ═══ -->
+	<!-- Main content -->
 	<main class="md:ml-64 flex-1 flex flex-col h-full bg-surface-container-lowest md:rounded-l-[2rem] mt-14 md:mt-0">
 
-		<!-- Top bar (M3 lift-on-scroll) -->
+		<!-- Top bar -->
 		<header class="h-16 sticky top-0 z-30 flex items-center justify-between px-4 transition-all duration-200
 			{scrolled ? 'bg-surface-container shadow-[var(--m3-elevation-2)]' : 'bg-surface-container-lowest'}">
 			<!-- Search -->
@@ -154,7 +155,7 @@
 					<input
 						type="search"
 						aria-label="Search files"
-						placeholder="Search in LiteCloud"
+						placeholder={t('search.placeholder')}
 						value={searchQuery}
 						oninput={onSearchInput}
 						onfocus={() => { if (searchResults.length) searchOpen = true; }}
@@ -182,14 +183,14 @@
 				{:else if searchOpen && searchQuery.trim()}
 					<div class="absolute top-full mt-1 left-0 right-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/20 p-6 z-50 text-center"
 						style="box-shadow: var(--m3-elevation-2);">
-						<p class="m3-body-medium text-on-surface-variant">No results for "{searchQuery}"</p>
+						<p class="m3-body-medium text-on-surface-variant">{t('search.noResults', { query: searchQuery })}</p>
 					</div>
 				{/if}
 			</div>
 
 			<!-- Right actions -->
 			<div class="flex items-center gap-1 ml-4">
-				<Tooltip text="Sign out">
+				<Tooltip text={t('auth.signOut')}>
 					<button
 						onclick={async () => {
 							await fetch('/api/auth/logout', { method: 'POST' });
@@ -197,7 +198,7 @@
 							window.location.href = '/login';
 						}}
 						class="m3-icon-btn"
-						aria-label="Sign out"
+						aria-label={t('auth.signOut')}
 					>
 						<span class="material-symbols-outlined">logout</span>
 					</button>
