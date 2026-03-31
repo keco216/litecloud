@@ -94,9 +94,10 @@ export function listBackups(): BackupInfo[] {
 }
 
 export function deleteBackup(name: string): boolean {
-	if (!name.startsWith('litecloud-') || !name.endsWith('.tar.gz')) return false;
+	const safeName = basename(name);
+	if (!safeName.startsWith('litecloud-') || !safeName.endsWith('.tar.gz')) return false;
 	try {
-		unlinkSync(join(BACKUP_DIR, name));
+		unlinkSync(join(BACKUP_DIR, safeName));
 		return true;
 	} catch {
 		return false;

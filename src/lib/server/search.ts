@@ -25,6 +25,17 @@ export interface SearchResult {
 	rank: number;
 }
 
+/** Escape HTML in FTS5 snippets, preserving only <mark></mark> tags */
+function sanitizeSnippet(html: string): string {
+	// Escape everything, then restore only the FTS5 <mark> wrapper tags
+	return html
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/&lt;mark&gt;/g, '<mark>')
+		.replace(/&lt;\/mark&gt;/g, '</mark>');
+}
+
 export function searchFiles(userId: string, query: string, limit = 50): SearchResult[] {
 	// Sanitize query for FTS5
 	const safeQuery = query.replace(/['"]/g, '').trim();
@@ -52,7 +63,7 @@ export function searchFiles(userId: string, query: string, limit = 50): SearchRe
 		return rows.map((r) => ({
 			fileId: r.file_id,
 			name: r.name,
-			snippet: r.snippet,
+			snippet: sanitizeSnippet(r.snippet),
 			rank: r.rank
 		}));
 	} catch {

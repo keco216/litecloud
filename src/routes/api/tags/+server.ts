@@ -62,9 +62,12 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const { id } = (await request.json()) as { id: string };
 	if (!id) error(400);
 
-	// Remove all file_tags for this tag first
+	// Verify tag belongs to user before deleting associations
+	const tag = db.select().from(tags).where(and(eq(tags.id, id), eq(tags.userId, locals.user.id))).get();
+	if (!tag) error(404, 'Tag not found');
+
 	db.delete(fileTags).where(eq(fileTags.tagId, id)).run();
-	db.delete(tags).where(and(eq(tags.id, id), eq(tags.userId, locals.user.id))).run();
+	db.delete(tags).where(eq(tags.id, id)).run();
 
 	return json({ ok: true });
 };

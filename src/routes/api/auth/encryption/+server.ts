@@ -20,7 +20,15 @@ export const GET: RequestHandler = async ({ url }) => {
 		.where(eq(users.email, email))
 		.get();
 
-	if (!user) error(404, 'User not found');
+	// Return consistent response to prevent user enumeration
+	if (!user) {
+		return json({
+			encryptionSalt: null,
+			encryptedMasterKey: null,
+			masterKeyIv: null,
+			totpEnabled: false
+		});
+	}
 
 	return json({
 		encryptionSalt: user.encryptionSalt,

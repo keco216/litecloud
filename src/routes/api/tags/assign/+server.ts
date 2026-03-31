@@ -38,9 +38,21 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const { fileIds, tagId } = (await request.json()) as { fileIds: string[]; tagId: string };
 	if (!fileIds?.length || !tagId) error(400);
 
-	db.delete(fileTags)
-		.where(and(inArray(fileTags.fileId, fileIds), eq(fileTags.tagId, tagId)))
-		.run();
+	// Verify tag belongs to user
+	const tag = db.select().from(tags).where(and(eq(tags.id, tagId), eq(tags.userId, locals.user.id))).get();
+	if (!tag) error(404, 'Tag not found');
+
+	// Only remove associations for files owned by the user
+	const ownedFileIds = fileIds.filter((fid) => {
+		const f = db.select({ id: files.id }).from(files).where(and(eq(files.id, fid), eq(files.userId, locals.user.id))).get();
+		return !!f;
+	});
+
+	if (ownedFileIds.length > 0) {
+		db.delete(fileTags)
+			.where(and(inArray(fileTags.fileId, ownedFileIds), eq(fileTags.tagId, tagId)))
+			.run();
+	}
 
 	return json({ ok: true });
 };

@@ -16,6 +16,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const newName = name.trim();
 
+	// SECURITY: reject path traversal in filenames
+	if (newName.includes('/') || newName.includes('\\') || newName.includes('..') || newName.includes('\0')) {
+		error(400, 'Invalid file name');
+	}
+
 	const file = db
 		.select()
 		.from(files)
