@@ -1,118 +1,67 @@
-import NodeClam from 'clamscan';
+/**
+ * Antivirus scanning via direct clamd TCP connection.
+ *
+ * Uses the built-in Node.js `net` module — no npm dependencies.
+ * Replaces the `clamscan` npm package which requires local binaries
+ * that don't exist in node:20-alpine Docker images.
+ */
+
+import { createClient, type ScanResult as ClamdScanResult } from './clamd-client.js';
 
 const CLAMAV_ENABLED = process.env.CLAMAV_ENABLED !== 'false';
-const CLAMAV_HOST = process.env.CLAMAV_HOST || '';
+const CLAMAV_HOST = process.env.CLAMAV_HOST || 'clamav';
 const CLAMAV_PORT = parseInt(process.env.CLAMAV_PORT || '3310', 10);
-const CLAMAV_SOCKET = process.env.CLAMAV_SOCKET || '';
+const CLAMAV_TIMEOUT = parseInt(process.env.CLAMAV_TIMEOUT || '60000', 10);
 
-// TCP wins over socket; if neither set, default to TCP host 'clamav'
-const useSocket = !!CLAMAV_SOCKET && !CLAMAV_HOST;
-const effectiveHost = CLAMAV_HOST || 'clamav';
-
-let scanner: any = null;
-let initPromise: Promise<any> | null = null;
 let isAvailable = false;
 let retryCount = 0;
 const MAX_INIT_RETRIES = 5;
-const RETRY_INTERVAL = 30_000; // 30s fixed interval — covers 150s total
+const RETRY_INTERVAL = 30_000; // 30s between retries — covers 150s total
 
-// Build config WITHOUT undefined keys — NodeClam breaks if socket key exists with undefined value
-function buildClamConfig() {
-	const clamdscanConfig: Record<string, any> = {
-		active: true,
-		timeout: 60000,
-		localFallback: false,
-		// Skip the TCP/socket connectivity test during init() so that
-		// ECONNREFUSED (ClamAV still starting) doesn't reject init.
-		// We handle connectivity errors at scan-time instead.
-		bypassTest: true
-	};
-
-	if (useSocket) {
-		clamdscanConfig.socket = CLAMAV_SOCKET;
-	} else {
-		clamdscanConfig.host = effectiveHost;
-		clamdscanConfig.port = CLAMAV_PORT;
-	}
-
-	return {
-		removeInfected: false,
-		quarantineInfected: false,
-		scanLog: null,
-		debugMode: false,
-		// Disable the local clamscan binary — it doesn't exist in node:20-alpine.
-		// Without this, NodeClam defaults clamscan.active=true and tries to find
-		// /usr/bin/clamscan, which can cause "No valid & active virus scanning
-		// binaries" errors in edge cases despite host/port being configured.
-		clamscan: {
-			active: false
-		},
-		clamdscan: clamdscanConfig,
-		preference: 'clamdscan'
-	};
-}
+const client = createClient({
+	host: CLAMAV_HOST,
+	port: CLAMAV_PORT,
+	timeout: CLAMAV_TIMEOUT
+});
 
 async function initScanner() {
 	if (!CLAMAV_ENABLED) {
 		console.log('[antivirus] ClamAV disabled via CLAMAV_ENABLED=false');
-		return null;
+		return;
 	}
-	if (scanner) return scanner;
-	if (retryCount >= MAX_INIT_RETRIES) {
-		// Don't log repeatedly — only log once when limit is first hit
-		return null;
-	}
-	if (initPromise) return initPromise;
+	if (isAvailable) return;
+	if (retryCount >= MAX_INIT_RETRIES) return;
 
 	retryCount++;
+	console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via TCP: ${CLAMAV_HOST}:${CLAMAV_PORT}`);
 
-	if (useSocket) {
-		console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via Unix Socket: ${CLAMAV_SOCKET}`);
-	} else {
-		console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via TCP: ${effectiveHost}:${CLAMAV_PORT}`);
+	try {
+		const pong = await client.ping();
+		if (!pong) throw new Error('PING did not return PONG');
+
+		const ver = await client.version();
+		isAvailable = true;
+		retryCount = 0;
+		console.log(`[antivirus] ClamAV connected successfully (${ver})`);
+	} catch (err: any) {
+		console.warn(`[antivirus] Connection failed: ${err.message}`);
+		isAvailable = false;
+
+		if (retryCount < MAX_INIT_RETRIES) {
+			console.log(`[antivirus] Retrying in ${RETRY_INTERVAL / 1000}s... (${retryCount}/${MAX_INIT_RETRIES})`);
+			setTimeout(() => initScanner(), RETRY_INTERVAL);
+		} else {
+			console.log('[antivirus] ClamAV not reachable after all retries — file scanning disabled');
+			console.log('[antivirus] Will retry on next scan request or file upload');
+		}
 	}
-
-	initPromise = new NodeClam().init(buildClamConfig())
-		.then(async (s: any) => {
-			// bypassTest=true means init() succeeds without verifying connectivity.
-			// Ping ClamAV ourselves to confirm the daemon is actually reachable.
-			try {
-				const version = await s.getVersion();
-				scanner = s;
-				isAvailable = true;
-				retryCount = 0;
-				console.log(`[antivirus] ClamAV connected successfully (${version})`);
-				return s;
-			} catch (pingErr: any) {
-				// Init succeeded but daemon isn't reachable yet — treat like a retry
-				throw new Error(`Daemon not reachable: ${pingErr.message}`);
-			}
-		})
-		.catch((err: any) => {
-			console.warn(`[antivirus] Connection failed: ${err.message}`);
-			isAvailable = false;
-			scanner = null;
-			initPromise = null;
-
-			if (retryCount < MAX_INIT_RETRIES) {
-				console.log(`[antivirus] Retrying in ${RETRY_INTERVAL / 1000}s... (${retryCount}/${MAX_INIT_RETRIES})`);
-				setTimeout(() => initScanner(), RETRY_INTERVAL);
-			} else {
-				console.log('[antivirus] ClamAV not reachable after all retries — file scanning disabled');
-				console.log('[antivirus] Will retry on next scan request or file upload');
-			}
-
-			return null;
-		});
-
-	return initPromise;
 }
 
 // Non-blocking init at startup
 initScanner();
 
 export function isScannerAvailable(): boolean {
-	return isAvailable && scanner !== null;
+	return isAvailable;
 }
 
 /**
@@ -125,7 +74,6 @@ export function tryReconnect(): void {
 	if (retryCount >= MAX_INIT_RETRIES) {
 		console.log('[antivirus] Reconnect requested — resetting retry counter');
 		retryCount = 0;
-		initPromise = null;
 		initScanner();
 	}
 }
@@ -146,17 +94,17 @@ export async function scanFile(filePath: string): Promise<ScanResult> {
 	}
 
 	try {
-		const clam = await initScanner();
-		if (!clam) return { scanned: false, isInfected: false, viruses: [], error: 'Not initialized', scanTimeMs: 0 };
-
-		const { isInfected, viruses } = await clam.isInfected(filePath);
-		return { scanned: true, isInfected: isInfected ?? false, viruses: viruses ?? [], scanTimeMs: Date.now() - start };
+		const result: ClamdScanResult = await client.scanFile(filePath);
+		return {
+			scanned: true,
+			isInfected: result.isInfected,
+			viruses: result.viruses,
+			scanTimeMs: Date.now() - start
+		};
 	} catch (err: any) {
 		console.error('[antivirus] Scan error:', err.message);
-		if (err.message?.includes('ECONNREFUSED') || err.message?.includes('ENOENT') || err.message?.includes('ETIMEDOUT')) {
+		if (err.message?.includes('ECONNREFUSED') || err.message?.includes('ENOENT') || err.message?.includes('ETIMEDOUT') || err.message?.includes('timed out')) {
 			isAvailable = false;
-			scanner = null;
-			initPromise = null;
 			// Allow fresh retry cycle after connection loss
 			if (retryCount >= MAX_INIT_RETRIES) {
 				retryCount = 0;
@@ -169,19 +117,20 @@ export async function scanFile(filePath: string): Promise<ScanResult> {
 
 export async function getStatus(): Promise<{ available: boolean; version?: string; error?: string }> {
 	if (!CLAMAV_ENABLED) return { available: false, error: 'Disabled' };
-	if (!isAvailable || !scanner) return { available: false, error: 'Not connected' };
+	if (!isAvailable) return { available: false, error: 'Not connected' };
 	try {
-		const version = await scanner.getVersion();
-		return { available: true, version: version || 'unknown' };
+		const ver = await client.version();
+		return { available: true, version: ver || 'unknown' };
 	} catch (err: any) {
 		return { available: false, error: err.message };
 	}
 }
 
 export async function isHealthy(): Promise<boolean> {
-	if (!CLAMAV_ENABLED || !isAvailable || !scanner) return false;
+	if (!CLAMAV_ENABLED || !isAvailable) return false;
 	try {
-		const v = await scanner.getVersion();
-		return !!v;
-	} catch { return false; }
+		return await client.ping();
+	} catch {
+		return false;
+	}
 }
