@@ -9,7 +9,12 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async () => {
 	try {
 		const result = db.select({ count: sql<number>`count(*)` }).from(users).get();
-		const avStatus = await getStatus();
+
+		let avStatus: { available: boolean; version?: string } = { available: false };
+		try {
+			avStatus = await getStatus();
+		} catch {}
+
 		return json({
 			status: 'ok',
 			timestamp: new Date().toISOString(),

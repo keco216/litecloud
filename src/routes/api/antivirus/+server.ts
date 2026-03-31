@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { files } from '$lib/server/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
-import { getStatus } from '$lib/server/antivirus';
+import { getStatus, isScannerAvailable } from '$lib/server/antivirus';
 import { scanPendingFiles } from '$lib/server/scan-queue';
 import type { RequestHandler } from './$types';
 
@@ -12,16 +12,20 @@ export const GET: RequestHandler = async ({ locals }) => {
 	try {
 		const status = await getStatus();
 
-		const stats = db
-			.select({ scanStatus: files.scanStatus, count: sql<number>`count(*)` })
-			.from(files)
-			.where(and(eq(files.userId, locals.user.id), eq(files.isFolder, false)))
-			.groupBy(files.scanStatus)
-			.all();
+		let counts: Record<string, number> = { pending: 0, clean: 0, infected: 0, error: 0, skipped: 0 };
+		try {
+			const stats = db
+				.select({ scanStatus: files.scanStatus, count: sql<number>`count(*)` })
+				.from(files)
+				.where(and(eq(files.userId, locals.user.id), eq(files.isFolder, false)))
+				.groupBy(files.scanStatus)
+				.all();
 
-		const counts: Record<string, number> = { pending: 0, clean: 0, infected: 0, error: 0, skipped: 0 };
-		for (const s of stats) {
-			if (s.scanStatus) counts[s.scanStatus] = s.count;
+			for (const s of stats) {
+				if (s.scanStatus) counts[s.scanStatus] = s.count;
+			}
+		} catch (dbErr) {
+			console.error('[antivirus] Stats query failed:', dbErr);
 		}
 
 		return json({
@@ -36,9 +40,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 			}
 		});
 	} catch (err: any) {
-		console.error('[antivirus] Status check failed:', err.message);
+		console.error('[antivirus] GET /api/antivirus failed:', err.message);
 		return json({
-			status: { available: false, error: 'ClamAV not available' },
+			status: { available: false, error: err.message || 'Unknown error' },
 			stats: { scanned: 0, clean: 0, infected: 0, pending: 0, skipped: 0, errors: 0 }
 		});
 	}
@@ -46,11 +50,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ locals }) => {
 	if (!locals.user) error(401);
+
 	try {
+		if (!isScannerAvailable()) {
+			return json({ ok: false, error: 'ClamAV is not available', queued: 0 });
+		}
+
 		const result = await scanPendingFiles();
 		return json({ ok: true, ...result });
 	} catch (err: any) {
-		console.error('[antivirus] Rescan failed:', err.message);
-		return json({ ok: false, error: 'ClamAV not available' });
+		console.error('[antivirus] POST /api/antivirus failed:', err.message);
+		return json({ ok: false, error: err.message || 'Scan failed', queued: 0 });
 	}
 };

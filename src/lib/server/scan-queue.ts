@@ -1,7 +1,7 @@
 import { db } from './db';
 import { files, users } from './db/schema';
 import { eq, and } from 'drizzle-orm';
-import { scanFile } from './antivirus';
+import { scanFile, isScannerAvailable } from './antivirus';
 import { createNotification } from './notifications';
 import { join } from 'node:path';
 import { rename, mkdir } from 'node:fs/promises';
@@ -15,6 +15,17 @@ const queue: Array<{ fileId: string; userId: string; fileName: string }> = [];
 let processing = false;
 
 export function queueFileScan(fileId: string, userId: string, fileName: string): void {
+	// Don't queue if scanner is not available
+	if (!isScannerAvailable()) {
+		try {
+			db.update(files).set({
+				scanStatus: 'skipped',
+				scanResult: JSON.stringify({ error: 'ClamAV not available', scannedAt: new Date().toISOString() })
+			}).where(eq(files.id, fileId)).run();
+		} catch {}
+		return;
+	}
+
 	queue.push({ fileId, userId, fileName });
 	processQueue();
 }
@@ -23,17 +34,32 @@ async function processQueue(): Promise<void> {
 	if (processing) return;
 	processing = true;
 
-	while (queue.length > 0 && activeCount < MAX_CONCURRENT) {
-		const item = queue.shift();
-		if (!item) break;
-		activeCount++;
-		processScan(item).finally(() => {
-			activeCount--;
-			if (queue.length > 0) processQueue();
-		});
-	}
+	try {
+		// Safety: if ClamAV went away, drain queue with 'skipped'
+		if (!isScannerAvailable()) {
+			let item;
+			while ((item = queue.shift())) {
+				try {
+					db.update(files).set({ scanStatus: 'skipped' }).where(eq(files.id, item.fileId)).run();
+				} catch {}
+			}
+			return;
+		}
 
-	processing = false;
+		while (queue.length > 0 && activeCount < MAX_CONCURRENT) {
+			const item = queue.shift();
+			if (!item) break;
+			activeCount++;
+			processScan(item).finally(() => {
+				activeCount--;
+				if (queue.length > 0 && isScannerAvailable()) {
+					processQueue();
+				}
+			});
+		}
+	} finally {
+		processing = false;
+	}
 }
 
 async function processScan(item: { fileId: string; userId: string; fileName: string }): Promise<void> {
@@ -102,19 +128,42 @@ async function processScan(item: { fileId: string; userId: string; fileName: str
 }
 
 export async function scanPendingFiles(): Promise<{ queued: number }> {
+	// Immediately bail if ClamAV is not available — no log spam
+	if (!isScannerAvailable()) {
+		return { queued: 0 };
+	}
+
 	const pending = db.select({ id: files.id, userId: files.userId, name: files.name })
 		.from(files)
 		.where(and(eq(files.isFolder, false)))
 		.all()
 		.filter(f => {
 			const row = db.select({ s: files.scanStatus }).from(files).where(eq(files.id, f.id)).get();
-			return row?.s === 'pending' || row?.s === 'skipped';
+			return row?.s === 'pending';
 		});
 
 	for (const f of pending) {
 		queueFileScan(f.id, f.userId, f.name);
 	}
 
-	console.log(`[antivirus] Queued ${pending.length} files for scanning`);
+	if (pending.length > 0) {
+		console.log(`[antivirus] Queued ${pending.length} pending files for scanning`);
+	}
 	return { queued: pending.length };
 }
+
+// Single delayed startup scan — gives ClamAV time to start
+let startupScanDone = false;
+setTimeout(async () => {
+	if (startupScanDone) return;
+	startupScanDone = true;
+
+	if (isScannerAvailable()) {
+		const result = await scanPendingFiles();
+		if (result.queued > 0) {
+			console.log(`[antivirus] Initial scan complete: ${result.queued} files queued`);
+		}
+	} else {
+		console.log('[antivirus] Skipping initial scan — ClamAV not available');
+	}
+}, 60_000);

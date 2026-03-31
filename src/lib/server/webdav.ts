@@ -288,7 +288,7 @@ async function handlePut(user: DavUser, path: string, request: Request): Promise
 		const u = db.select({ used: users.storageUsed }).from(users).where(eq(users.id, user.id)).get()!;
 		db.update(users).set({ storageUsed: (u.used ?? 0) + sizeDiff }).where(eq(users.id, user.id)).run();
 
-		queueFileScan(existing.id, user.id, name);
+		try { queueFileScan(existing.id, user.id, name); } catch {}
 		return new Response(null, { status: 204 });
 	}
 
@@ -307,7 +307,7 @@ async function handlePut(user: DavUser, path: string, request: Request): Promise
 	const u = db.select({ used: users.storageUsed }).from(users).where(eq(users.id, user.id)).get()!;
 	db.update(users).set({ storageUsed: (u.used ?? 0) + body.byteLength }).where(eq(users.id, user.id)).run();
 
-	queueFileScan(id, user.id, name);
+	try { queueFileScan(id, user.id, name); } catch {}
 	return new Response(null, { status: 201 });
 }
 

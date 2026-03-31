@@ -1,10 +1,35 @@
 import NodeClam from 'clamscan';
 
 const CLAMAV_ENABLED = process.env.CLAMAV_ENABLED !== 'false';
+const CLAMAV_HOST = process.env.CLAMAV_HOST || '';
+const CLAMAV_PORT = parseInt(process.env.CLAMAV_PORT || '3310', 10);
+const CLAMAV_SOCKET = process.env.CLAMAV_SOCKET || '';
+
+// TCP wins over socket; if neither set, default to TCP host 'clamav'
+const useSocket = !!CLAMAV_SOCKET && !CLAMAV_HOST;
+const effectiveHost = CLAMAV_HOST || 'clamav';
 
 let scanner: any = null;
 let initPromise: Promise<any> | null = null;
 let isAvailable = false;
+let retryCount = 0;
+const MAX_INIT_RETRIES = 3;
+
+const clamConfig = {
+	removeInfected: false,
+	quarantineInfected: false,
+	scanLog: null,
+	debugMode: false,
+	clamdscan: {
+		active: true,
+		timeout: 60000,
+		localFallback: false,
+		host: useSocket ? undefined : effectiveHost,
+		port: useSocket ? undefined : CLAMAV_PORT,
+		socket: useSocket ? CLAMAV_SOCKET : undefined
+	},
+	preference: 'clamdscan'
+};
 
 async function initScanner() {
 	if (!CLAMAV_ENABLED) {
@@ -12,40 +37,54 @@ async function initScanner() {
 		return null;
 	}
 	if (scanner) return scanner;
+	if (retryCount >= MAX_INIT_RETRIES) {
+		console.log(`[antivirus] Gave up after ${MAX_INIT_RETRIES} attempts`);
+		return null;
+	}
 	if (initPromise) return initPromise;
 
-	initPromise = new NodeClam().init({
-		removeInfected: false,
-		quarantineInfected: false,
-		scanLog: null,
-		debugMode: false,
-		clamdscan: {
-			socket: process.env.CLAMAV_SOCKET || '/var/run/clamav/clamd.sock',
-			host: process.env.CLAMAV_HOST || 'clamav',
-			port: parseInt(process.env.CLAMAV_PORT || '3310'),
-			timeout: 60000,
-			localFallback: false,
-			active: true
-		},
-		preference: 'clamdscan'
-	}).then((s: any) => {
-		scanner = s;
-		isAvailable = true;
-		console.log('[antivirus] ClamAV connected successfully');
-		return s;
-	}).catch((err: any) => {
-		console.warn('[antivirus] ClamAV not available:', err.message);
-		console.warn('[antivirus] File scanning disabled');
-		isAvailable = false;
-		initPromise = null;
-		return null;
-	});
+	retryCount++;
+
+	if (useSocket) {
+		console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via Unix Socket: ${CLAMAV_SOCKET}`);
+	} else {
+		console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via TCP: ${effectiveHost}:${CLAMAV_PORT}`);
+	}
+
+	initPromise = new NodeClam().init(clamConfig)
+		.then((s: any) => {
+			scanner = s;
+			isAvailable = true;
+			retryCount = 0;
+			console.log('[antivirus] ClamAV connected successfully');
+			return s;
+		})
+		.catch((err: any) => {
+			console.warn(`[antivirus] Connection failed: ${err.message}`);
+			isAvailable = false;
+			scanner = null;
+			initPromise = null;
+
+			if (retryCount < MAX_INIT_RETRIES) {
+				const delay = retryCount * 30_000; // 30s, 60s, 90s
+				console.log(`[antivirus] Retrying in ${delay / 1000}s...`);
+				setTimeout(() => initScanner(), delay);
+			} else {
+				console.log('[antivirus] ClamAV not reachable — file scanning disabled');
+			}
+
+			return null;
+		});
 
 	return initPromise;
 }
 
 // Non-blocking init at startup
 initScanner();
+
+export function isScannerAvailable(): boolean {
+	return isAvailable && scanner !== null;
+}
 
 export interface ScanResult {
 	scanned: boolean;
@@ -74,7 +113,9 @@ export async function scanFile(filePath: string): Promise<ScanResult> {
 			isAvailable = false;
 			scanner = null;
 			initPromise = null;
-			setTimeout(() => initScanner(), 30_000);
+			if (retryCount < MAX_INIT_RETRIES) {
+				setTimeout(() => initScanner(), 30_000);
+			}
 		}
 		return { scanned: false, isInfected: false, viruses: [], error: err.message, scanTimeMs: Date.now() - start };
 	}

@@ -135,7 +135,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	// Queue antivirus scan (background, non-blocking)
 	for (const r of results) {
-		queueFileScan(r.id, locals.user.id, r.name);
+		try {
+			queueFileScan(r.id, locals.user.id, r.name);
+		} catch (scanErr) {
+			console.warn('[upload] Failed to queue scan:', scanErr);
+		}
 	}
 
 	return json({ files: results });
