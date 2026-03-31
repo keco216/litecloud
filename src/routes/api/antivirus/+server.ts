@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { files } from '$lib/server/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
-import { getStatus, isScannerAvailable } from '$lib/server/antivirus';
+import { getStatus, isScannerAvailable, tryReconnect } from '$lib/server/antivirus';
 import { scanPendingFiles } from '$lib/server/scan-queue';
 import type { RequestHandler } from './$types';
 
@@ -52,6 +52,13 @@ export const POST: RequestHandler = async ({ locals }) => {
 	if (!locals.user) error(401);
 
 	try {
+		// If scanner was unavailable, try to reconnect (user clicked "scan pending")
+		if (!isScannerAvailable()) {
+			tryReconnect();
+			// Give it a moment to connect
+			await new Promise(r => setTimeout(r, 3_000));
+		}
+
 		if (!isScannerAvailable()) {
 			return json({ ok: false, error: 'ClamAV is not available', queued: 0 });
 		}

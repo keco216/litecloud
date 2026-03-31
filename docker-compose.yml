@@ -6,7 +6,6 @@ services:
       - "3000:3000"
     volumes:
       - litecloud-data:/data
-      - clamav-socket:/var/run/clamav
     environment:
       - UPLOAD_DIR=/data/uploads
       - DB_PATH=/data/litecloud.db
@@ -14,7 +13,8 @@ services:
       - ORIGIN=${ORIGIN:-http://localhost:3000}
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
       - STORAGE_QUOTA=${STORAGE_QUOTA:-1GB}
-      - CLAMAV_SOCKET=/var/run/clamav/clamd.sock
+      - CLAMAV_HOST=clamav
+      - CLAMAV_PORT=3310
       - CLAMAV_ENABLED=${CLAMAV_ENABLED:-true}
       - QUARANTINE_DIR=/data/quarantine
       - BACKUP_DIR=/data/backups

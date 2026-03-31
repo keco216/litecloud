@@ -1,7 +1,7 @@
 import { db } from './db';
 import { files, users } from './db/schema';
 import { eq, and } from 'drizzle-orm';
-import { scanFile, isScannerAvailable } from './antivirus';
+import { scanFile, isScannerAvailable, tryReconnect } from './antivirus';
 import { createNotification } from './notifications';
 import { join } from 'node:path';
 import { rename, mkdir } from 'node:fs/promises';
@@ -152,18 +152,25 @@ export async function scanPendingFiles(): Promise<{ queued: number }> {
 	return { queued: pending.length };
 }
 
-// Single delayed startup scan — gives ClamAV time to start
+// Single delayed startup scan — gives ClamAV time to start (120s matches ClamAV start_period)
 let startupScanDone = false;
 setTimeout(async () => {
 	if (startupScanDone) return;
 	startupScanDone = true;
 
+	// If scanner isn't connected yet, try one more reconnect
+	if (!isScannerAvailable()) {
+		tryReconnect();
+		// Wait a bit for the reconnect attempt
+		await new Promise(r => setTimeout(r, 5_000));
+	}
+
 	if (isScannerAvailable()) {
 		const result = await scanPendingFiles();
 		if (result.queued > 0) {
-			console.log(`[antivirus] Initial scan complete: ${result.queued} files queued`);
+			console.log(`[antivirus] Initial scan: ${result.queued} files queued`);
 		}
 	} else {
-		console.log('[antivirus] Skipping initial scan — ClamAV not available');
+		console.log('[antivirus] Skipping initial scan — ClamAV not available yet');
 	}
-}, 60_000);
+}, 120_000);

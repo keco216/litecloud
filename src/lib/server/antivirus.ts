@@ -13,23 +13,33 @@ let scanner: any = null;
 let initPromise: Promise<any> | null = null;
 let isAvailable = false;
 let retryCount = 0;
-const MAX_INIT_RETRIES = 3;
+const MAX_INIT_RETRIES = 5;
+const RETRY_INTERVAL = 30_000; // 30s fixed interval — covers 150s total
 
-const clamConfig = {
-	removeInfected: false,
-	quarantineInfected: false,
-	scanLog: null,
-	debugMode: false,
-	clamdscan: {
+// Build config WITHOUT undefined keys — NodeClam breaks if socket key exists with undefined value
+function buildClamConfig() {
+	const clamdscanConfig: Record<string, any> = {
 		active: true,
 		timeout: 60000,
-		localFallback: false,
-		host: useSocket ? undefined : effectiveHost,
-		port: useSocket ? undefined : CLAMAV_PORT,
-		socket: useSocket ? CLAMAV_SOCKET : undefined
-	},
-	preference: 'clamdscan'
-};
+		localFallback: false
+	};
+
+	if (useSocket) {
+		clamdscanConfig.socket = CLAMAV_SOCKET;
+	} else {
+		clamdscanConfig.host = effectiveHost;
+		clamdscanConfig.port = CLAMAV_PORT;
+	}
+
+	return {
+		removeInfected: false,
+		quarantineInfected: false,
+		scanLog: null,
+		debugMode: false,
+		clamdscan: clamdscanConfig,
+		preference: 'clamdscan'
+	};
+}
 
 async function initScanner() {
 	if (!CLAMAV_ENABLED) {
@@ -38,7 +48,7 @@ async function initScanner() {
 	}
 	if (scanner) return scanner;
 	if (retryCount >= MAX_INIT_RETRIES) {
-		console.log(`[antivirus] Gave up after ${MAX_INIT_RETRIES} attempts`);
+		// Don't log repeatedly — only log once when limit is first hit
 		return null;
 	}
 	if (initPromise) return initPromise;
@@ -51,7 +61,7 @@ async function initScanner() {
 		console.log(`[antivirus] Init attempt ${retryCount}/${MAX_INIT_RETRIES} via TCP: ${effectiveHost}:${CLAMAV_PORT}`);
 	}
 
-	initPromise = new NodeClam().init(clamConfig)
+	initPromise = new NodeClam().init(buildClamConfig())
 		.then((s: any) => {
 			scanner = s;
 			isAvailable = true;
@@ -66,11 +76,11 @@ async function initScanner() {
 			initPromise = null;
 
 			if (retryCount < MAX_INIT_RETRIES) {
-				const delay = retryCount * 30_000; // 30s, 60s, 90s
-				console.log(`[antivirus] Retrying in ${delay / 1000}s...`);
-				setTimeout(() => initScanner(), delay);
+				console.log(`[antivirus] Retrying in ${RETRY_INTERVAL / 1000}s... (${retryCount}/${MAX_INIT_RETRIES})`);
+				setTimeout(() => initScanner(), RETRY_INTERVAL);
 			} else {
-				console.log('[antivirus] ClamAV not reachable — file scanning disabled');
+				console.log('[antivirus] ClamAV not reachable after all retries — file scanning disabled');
+				console.log('[antivirus] Will retry on next scan request or file upload');
 			}
 
 			return null;
@@ -84,6 +94,21 @@ initScanner();
 
 export function isScannerAvailable(): boolean {
 	return isAvailable && scanner !== null;
+}
+
+/**
+ * Allow lazy reconnect: reset retry counter so next scan attempt
+ * triggers a fresh connection cycle. Called when user requests a scan
+ * or uploads a file after ClamAV was previously unreachable.
+ */
+export function tryReconnect(): void {
+	if (!CLAMAV_ENABLED || isAvailable) return;
+	if (retryCount >= MAX_INIT_RETRIES) {
+		console.log('[antivirus] Reconnect requested — resetting retry counter');
+		retryCount = 0;
+		initPromise = null;
+		initScanner();
+	}
 }
 
 export interface ScanResult {
@@ -109,13 +134,15 @@ export async function scanFile(filePath: string): Promise<ScanResult> {
 		return { scanned: true, isInfected: isInfected ?? false, viruses: viruses ?? [], scanTimeMs: Date.now() - start };
 	} catch (err: any) {
 		console.error('[antivirus] Scan error:', err.message);
-		if (err.message?.includes('ECONNREFUSED') || err.message?.includes('ENOENT')) {
+		if (err.message?.includes('ECONNREFUSED') || err.message?.includes('ENOENT') || err.message?.includes('ETIMEDOUT')) {
 			isAvailable = false;
 			scanner = null;
 			initPromise = null;
-			if (retryCount < MAX_INIT_RETRIES) {
-				setTimeout(() => initScanner(), 30_000);
+			// Allow fresh retry cycle after connection loss
+			if (retryCount >= MAX_INIT_RETRIES) {
+				retryCount = 0;
 			}
+			setTimeout(() => initScanner(), RETRY_INTERVAL);
 		}
 		return { scanned: false, isInfected: false, viruses: [], error: err.message, scanTimeMs: Date.now() - start };
 	}
