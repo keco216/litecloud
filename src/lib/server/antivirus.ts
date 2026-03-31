@@ -21,7 +21,11 @@ function buildClamConfig() {
 	const clamdscanConfig: Record<string, any> = {
 		active: true,
 		timeout: 60000,
-		localFallback: false
+		localFallback: false,
+		// Skip the TCP/socket connectivity test during init() so that
+		// ECONNREFUSED (ClamAV still starting) doesn't reject init.
+		// We handle connectivity errors at scan-time instead.
+		bypassTest: true
 	};
 
 	if (useSocket) {
@@ -36,6 +40,13 @@ function buildClamConfig() {
 		quarantineInfected: false,
 		scanLog: null,
 		debugMode: false,
+		// Disable the local clamscan binary — it doesn't exist in node:20-alpine.
+		// Without this, NodeClam defaults clamscan.active=true and tries to find
+		// /usr/bin/clamscan, which can cause "No valid & active virus scanning
+		// binaries" errors in edge cases despite host/port being configured.
+		clamscan: {
+			active: false
+		},
 		clamdscan: clamdscanConfig,
 		preference: 'clamdscan'
 	};
@@ -62,12 +73,20 @@ async function initScanner() {
 	}
 
 	initPromise = new NodeClam().init(buildClamConfig())
-		.then((s: any) => {
-			scanner = s;
-			isAvailable = true;
-			retryCount = 0;
-			console.log('[antivirus] ClamAV connected successfully');
-			return s;
+		.then(async (s: any) => {
+			// bypassTest=true means init() succeeds without verifying connectivity.
+			// Ping ClamAV ourselves to confirm the daemon is actually reachable.
+			try {
+				const version = await s.getVersion();
+				scanner = s;
+				isAvailable = true;
+				retryCount = 0;
+				console.log(`[antivirus] ClamAV connected successfully (${version})`);
+				return s;
+			} catch (pingErr: any) {
+				// Init succeeded but daemon isn't reachable yet — treat like a retry
+				throw new Error(`Daemon not reachable: ${pingErr.message}`);
+			}
 		})
 		.catch((err: any) => {
 			console.warn(`[antivirus] Connection failed: ${err.message}`);
