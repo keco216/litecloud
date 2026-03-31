@@ -1,6 +1,7 @@
 services:
   litecloud:
-    build: .
+    image: ghcr.io/keco216/litecloud:latest
+    # build: .  # Uncomment for local development builds
     ports:
       - "3000:3000"
     volumes:
@@ -10,15 +11,23 @@ services:
       - UPLOAD_DIR=/data/uploads
       - DB_PATH=/data/litecloud.db
       - BODY_SIZE_LIMIT=Infinity
-      - ORIGIN=http://localhost:3000
+      - ORIGIN=${ORIGIN:-http://localhost:3000}
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
+      - STORAGE_QUOTA=${STORAGE_QUOTA:-1GB}
       - CLAMAV_SOCKET=/var/run/clamav/clamd.sock
       - CLAMAV_ENABLED=${CLAMAV_ENABLED:-true}
       - QUARANTINE_DIR=/data/quarantine
+      - BACKUP_DIR=/data/backups
     depends_on:
       clamav:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ClamAV Antivirus Scanner
   clamav:

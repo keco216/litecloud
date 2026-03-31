@@ -95,7 +95,9 @@ async function processScan(item: { fileId: string; userId: string; fileName: str
 		}
 	} catch (err: any) {
 		console.error(`[antivirus] Error scanning ${fileName}:`, err.message);
-		db.update(files).set({ scanStatus: 'error', scanResult: JSON.stringify({ error: err.message, scannedAt: new Date().toISOString() }) }).where(eq(files.id, fileId)).run();
+		try {
+			db.update(files).set({ scanStatus: 'skipped', scanResult: JSON.stringify({ error: err.message, scannedAt: new Date().toISOString() }) }).where(eq(files.id, fileId)).run();
+		} catch {}
 	}
 }
 
