@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n/index.svelte';
 	let { open = false, title = 'Confirm', message = '', confirmLabel = 'Confirm', danger = false, onconfirm, oncancel }:
 		{ open: boolean; title?: string; message: string; confirmLabel?: string; danger?: boolean; onconfirm: () => void; oncancel: () => void } = $props();
 </script>
@@ -21,7 +22,7 @@
 				<p class="m3-body-medium text-on-surface-variant ml-[52px]">{message}</p>
 			</div>
 			<div class="px-6 py-4 flex justify-end gap-2">
-				<button onclick={oncancel} class="m3-btn m3-btn-text">Cancel</button>
+				<button onclick={oncancel} class="m3-btn m3-btn-text">{t('confirm.cancel')}</button>
 				<button onclick={onconfirm} class="m3-btn {danger ? 'm3-btn-danger' : 'm3-btn-filled'}">
 					{confirmLabel}
 				</button>

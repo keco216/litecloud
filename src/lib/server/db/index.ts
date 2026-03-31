@@ -32,3 +32,11 @@ sqlite.exec(`
 // Start backup cron jobs
 import { startBackupCron } from '../backup';
 startBackupCron();
+
+// Start trash auto-purge cron
+import { startTrashCron } from '../trash';
+startTrashCron();
+
+// Cleanup old notifications on startup
+import { deleteOldNotifications } from '../notifications';
+deleteOldNotifications();

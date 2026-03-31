@@ -288,7 +288,7 @@
 					{/if}
 
 					<button onclick={download} disabled={downloading || (data.hasPassword && !password)} class="m3-btn m3-btn-filled w-full !h-11">
-						<span class="material-symbols-outlined text-[18px]">download</span>
+						<span class="material-symbols-outlined text-[18px] m3-icon-download">download</span>
 						{#if downloading}
 							{t('files.download')}...
 						{:else if data.isFolder}

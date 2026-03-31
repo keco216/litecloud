@@ -1,12 +1,27 @@
 <script lang="ts">
 	import { unlockMasterKey, storeMasterKey } from '$lib/crypto';
 	import { t } from '$lib/i18n/index.svelte';
+	import AnimatedIcon from '$lib/components/AnimatedIcon.svelte';
+	import { MORPH_PAIRS } from '$lib/utils/icon-paths';
 	import type { ActionData } from './$types';
 	let { form }: { form: ActionData } = $props();
 
 	let unlocking = $state(false);
 	let showPassword = $state(false);
 	let lastPassword = $state(''); // retained client-side only, never sent back by server
+	let countdown = $state(0);
+	let countdownTimer: ReturnType<typeof setInterval> | null = null;
+
+	$effect(() => {
+		if (form && (form as any).rateLimited && (form as any).retryAfterMs) {
+			countdown = Math.ceil((form as any).retryAfterMs / 1000);
+			if (countdownTimer) clearInterval(countdownTimer);
+			countdownTimer = setInterval(() => {
+				countdown--;
+				if (countdown <= 0) { clearInterval(countdownTimer!); countdownTimer = null; countdown = 0; }
+			}, 1000);
+		}
+	});
 
 	$effect(() => {
 		if (form && !form.error && !unlocking) {
@@ -63,7 +78,12 @@
 				</div>
 			{:else}
 				<form method="POST" class="space-y-5">
-					{#if form?.error}
+					{#if countdown > 0}
+						<div role="alert" class="m3-body-small text-error bg-error-container/30 rounded-xl px-4 py-3 flex items-center gap-2">
+							<span class="material-symbols-outlined text-[18px]">timer</span>
+							{t('auth.rateLimited', { seconds: String(countdown) })}
+						</div>
+					{:else if form?.error}
 						<div role="alert" class="m3-body-small text-error bg-error-container/30 rounded-xl px-4 py-3 flex items-center gap-2">
 							<span class="material-symbols-outlined text-[18px]">error</span>
 							{form.error}
@@ -90,12 +110,12 @@
 							/>
 							<button type="button" onclick={() => showPassword = !showPassword} tabindex={-1}
 								class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer p-1 rounded-full">
-								<span class="material-symbols-outlined text-[20px]">{showPassword ? 'visibility_off' : 'visibility'}</span>
+								<AnimatedIcon from={MORPH_PAIRS.visibilityToggle.from} to={MORPH_PAIRS.visibilityToggle.to} active={showPassword} size={20} />
 							</button>
 						</div>
 					</div>
 
-					<button type="submit"
+					<button type="submit" disabled={countdown > 0}
 						class="m3-btn m3-btn-filled w-full !h-11 !rounded-full mt-4">
 						{t('auth.signIn')}
 					</button>

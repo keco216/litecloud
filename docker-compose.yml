@@ -5,13 +5,46 @@ services:
       - "3000:3000"
     volumes:
       - litecloud-data:/data
+      - clamav-socket:/var/run/clamav
     environment:
       - UPLOAD_DIR=/data/uploads
       - DB_PATH=/data/litecloud.db
       - BODY_SIZE_LIMIT=Infinity
       - ORIGIN=http://localhost:3000
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
+      - CLAMAV_SOCKET=/var/run/clamav/clamd.sock
+      - CLAMAV_ENABLED=${CLAMAV_ENABLED:-true}
+      - QUARANTINE_DIR=/data/quarantine
+    depends_on:
+      clamav:
+        condition: service_healthy
     restart: unless-stopped
+
+  # ClamAV Antivirus Scanner
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: litecloud-clamav
+    restart: unless-stopped
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - clamav-socket:/var/run/clamav
+      - litecloud-data:/scan:ro
+    environment:
+      - CLAMAV_NO_CLAMD=false
+      - CLAMAV_NO_FRESHCLAM=false
+      - CLAMAV_NO_MILTERD=true
+    healthcheck:
+      test: ["CMD", "clamdcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
 
   # Optional: Caddy reverse proxy for auto-HTTPS
   # Uncomment and set your domain in Caddyfile
@@ -29,5 +62,7 @@ services:
 
 volumes:
   litecloud-data:
+  clamav-db:
+  clamav-socket:
   # caddy-data:
   # caddy-config:

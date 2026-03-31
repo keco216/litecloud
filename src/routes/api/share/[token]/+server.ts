@@ -1,12 +1,14 @@
 import { error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { shares, files } from '$lib/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { getFileStream } from '$lib/server/storage';
 import { Readable } from 'node:stream';
 import bcrypt from 'bcrypt';
 import archiver from 'archiver';
 import { join } from 'node:path';
+import { shareLimiter } from '$lib/server/ratelimit';
+import { notifyShareDownload } from '$lib/server/notifications';
 import type { RequestHandler } from './$types';
 
 const UPLOAD_ROOT = process.env.UPLOAD_DIR || './data/uploads';
@@ -20,20 +22,37 @@ function validateShare(share: typeof shares.$inferSelect) {
 	}
 }
 
-async function checkPassword(share: typeof shares.$inferSelect, url: URL) {
+function getClientIP(request: Request): string {
+	return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+		|| request.headers.get('x-real-ip')
+		|| '0.0.0.0';
+}
+
+async function checkPassword(share: typeof shares.$inferSelect, url: URL, request: Request) {
 	if (share.password) {
 		const pw = url.searchParams.get('password');
 		if (!pw) error(403, 'Password required');
+
+		const limitKey = `share:${share.token}:${getClientIP(request)}`;
+		const limit = shareLimiter.check(limitKey);
+		if (!limit.allowed) {
+			error(429, `Too many attempts. Try again in ${Math.ceil(limit.retryAfterMs / 60000)} minutes.`);
+		}
+
 		const valid = await bcrypt.compare(pw, share.password);
 		if (!valid) error(403, 'Invalid password');
+
+		shareLimiter.reset(limitKey);
 	}
 }
 
-function incrementDownloads(share: typeof shares.$inferSelect) {
+function incrementDownloads(share: typeof shares.$inferSelect, fileName?: string) {
+	const newCount = (share.downloadCount ?? 0) + 1;
 	db.update(shares)
-		.set({ downloadCount: (share.downloadCount ?? 0) + 1 })
+		.set({ downloadCount: newCount })
 		.where(eq(shares.id, share.id))
 		.run();
+	if (fileName) notifyShareDownload(share.userId, fileName, newCount);
 }
 
 /** Recursively collect all non-folder files under a folder path */
@@ -44,14 +63,14 @@ function collectFolderFiles(userId: string, folderPath: string): (typeof files.$
 	);
 }
 
-export const GET: RequestHandler = async ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, url, request }) => {
 	const share = db.select().from(shares).where(eq(shares.token, params.token)).get();
 	if (!share) error(404, 'Share link not found');
 
 	validateShare(share);
-	await checkPassword(share, url);
+	await checkPassword(share, url, request);
 
-	const sharedItem = db.select().from(files).where(eq(files.id, share.fileId)).get();
+	const sharedItem = db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt))).get();
 	if (!sharedItem) error(404, 'File not found');
 
 	// Single file download (fileId query param for downloading individual files from shared folder)
@@ -68,7 +87,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			error(403, 'File not in shared folder');
 		}
 
-		incrementDownloads(share);
+		incrementDownloads(share, sharedItem?.name);
 
 		const isPreview = url.searchParams.has('preview');
 		const nodeStream = getFileStream(targetFile.userId, targetFile.id, targetFile.name);
@@ -92,7 +111,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			sharedItem.path === '/' ? `/${sharedItem.name}` : `${sharedItem.path}/${sharedItem.name}`;
 		const folderFiles = collectFolderFiles(sharedItem.userId, folderFullPath);
 
-		incrementDownloads(share);
+		incrementDownloads(share, sharedItem?.name);
 
 		const archive = archiver('zip', { zlib: { level: 5 } });
 
@@ -121,7 +140,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	const isPreview = url.searchParams.has('preview');
 
 	if (!isPreview) {
-		incrementDownloads(share);
+		incrementDownloads(share, sharedItem?.name);
 	}
 
 	const nodeStream = getFileStream(sharedItem.userId, sharedItem.id, sharedItem.name);

@@ -3,6 +3,8 @@ import { verifyCredentials, createSession } from '$lib/server/auth';
 import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
+import { loginLimiter } from '$lib/server/ratelimit';
+import { notifyNewLogin } from '$lib/server/notifications';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -10,7 +12,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request, cookies, getClientAddress }) => {
 		const data = await request.formData();
 		const email = data.get('email')?.toString().trim();
 		const password = data.get('password')?.toString();
@@ -19,10 +21,27 @@ export const actions: Actions = {
 			return fail(400, { error: 'Email and password are required.', email });
 		}
 
+		const ip = getClientAddress();
+		const loginKey = `login:${ip}`;
+		const limit = loginLimiter.check(loginKey);
+
+		if (!limit.allowed) {
+			return fail(429, {
+				error: `Too many login attempts.`,
+				email,
+				rateLimited: true,
+				retryAfterMs: limit.retryAfterMs
+			});
+		}
+
 		const user = await verifyCredentials(email, password);
 		if (!user) {
 			return fail(401, { error: 'Invalid email or password.', email });
 		}
+
+		// Success — reset limiter
+		loginLimiter.reset(loginKey);
+		notifyNewLogin(user.id, ip);
 
 		// Fetch encryption + TOTP metadata
 		const fullUser = db.select().from(users).where(eq(users.id, user.id)).get()!;
@@ -36,8 +55,6 @@ export const actions: Actions = {
 				maxAge: 300
 			});
 
-			// SECURITY: Never return password. Client retains it in memory.
-			// Don't return encryption metadata before TOTP verification.
 			return {
 				unlockEncryption: false,
 				needsTotp: true,
@@ -47,7 +64,6 @@ export const actions: Actions = {
 
 		createSession(user.id, cookies);
 
-		// SECURITY: Never return password — client keeps it from the form.
 		return {
 			unlockEncryption: true,
 			needsTotp: false,

@@ -1,11 +1,18 @@
 import { error, json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { shares, files } from '$lib/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
+import { shareLimiter } from '$lib/server/ratelimit';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, url }) => {
+function getClientIP(request: Request): string {
+	return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+		|| request.headers.get('x-real-ip')
+		|| '0.0.0.0';
+}
+
+export const GET: RequestHandler = async ({ params, url, request }) => {
 	const share = db.select().from(shares).where(eq(shares.token, params.token)).get();
 	if (!share) error(404, 'Share link not found');
 
@@ -19,11 +26,20 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	if (share.password) {
 		const pw = url.searchParams.get('password');
 		if (!pw) error(403, 'Password required');
+
+		const limitKey = `share:${share.token}:${getClientIP(request)}`;
+		const limit = shareLimiter.check(limitKey);
+		if (!limit.allowed) {
+			error(429, `Too many attempts. Try again in ${Math.ceil(limit.retryAfterMs / 60000)} minutes.`);
+		}
+
 		const valid = await bcrypt.compare(pw, share.password);
 		if (!valid) error(403, 'Invalid password');
+
+		shareLimiter.reset(limitKey);
 	}
 
-	const sharedItem = db.select().from(files).where(eq(files.id, share.fileId)).get();
+	const sharedItem = db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt))).get();
 	if (!sharedItem || !sharedItem.isFolder) error(400, 'Not a shared folder');
 
 	// Build the folder's full path
@@ -49,7 +65,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			updatedAt: files.updatedAt
 		})
 		.from(files)
-		.where(and(eq(files.userId, sharedItem.userId), eq(files.path, browsePath)))
+		.where(and(eq(files.userId, sharedItem.userId), eq(files.path, browsePath), isNull(files.deletedAt)))
 		.all();
 
 	// Sort: folders first, then by name

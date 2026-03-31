@@ -82,29 +82,33 @@
   color-scheme: light dark;
 
   /* ── M3 Motion: Easing ── */
-  --m3-ease: cubic-bezier(0.2, 0, 0, 1);                /* standard */
-  --m3-ease-standard-decel: cubic-bezier(0, 0, 0, 1);   /* entering screen */
-  --m3-ease-standard-accel: cubic-bezier(0.3, 0, 1, 1); /* exiting screen */
-  --m3-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);  /* M3 enter */
-  --m3-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);  /* M3 exit */
+  --m3-ease: cubic-bezier(0.2, 0, 0, 1);                         /* standard */
+  --m3-ease-linear: cubic-bezier(0, 0, 1, 1);                    /* linear (color/opacity) */
+  --m3-ease-standard-decel: cubic-bezier(0, 0, 0, 1);            /* entering screen */
+  --m3-ease-standard-accel: cubic-bezier(0.3, 0, 1, 1);          /* exiting screen */
+  --m3-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);              /* CSS approximation */
+  --m3-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);   /* expressive enter */
+  --m3-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);   /* expressive exit */
   --m3-ease-accel: var(--m3-ease-emphasized-accel);
   --m3-ease-decel: var(--m3-ease-emphasized-decel);
 
   /* ── M3 Motion: Durations ── */
-  --m3-duration-short1: 50ms;
-  --m3-duration-short2: 100ms;
-  --m3-duration-short3: 150ms;
-  --m3-duration-short4: 200ms;
-  --m3-duration-medium1: 250ms;
-  --m3-duration-medium2: 300ms;
-  --m3-duration-medium3: 350ms;
-  --m3-duration-medium4: 400ms;
-  --m3-duration-long1: 450ms;
-  --m3-duration-long2: 500ms;
-  --m3-duration-long3: 550ms;
-  --m3-duration-long4: 600ms;
-  --m3-duration-extra-long1: 700ms;
-  --m3-duration-extra-long2: 800ms;
+  --m3-duration-short1: 50ms;      /* ripple, state layer */
+  --m3-duration-short2: 100ms;     /* icon swap, checkbox */
+  --m3-duration-short3: 150ms;     /* tooltip, small fade */
+  --m3-duration-short4: 200ms;     /* button state, small enter/exit */
+  --m3-duration-medium1: 250ms;    /* menu open, snackbar */
+  --m3-duration-medium2: 300ms;    /* card expand, FAB, nav indicator */
+  --m3-duration-medium3: 350ms;    /* search bar, bottom sheet */
+  --m3-duration-medium4: 400ms;    /* dialog open, drawer */
+  --m3-duration-long1: 450ms;      /* full-screen transition */
+  --m3-duration-long2: 500ms;      /* large container transform */
+  --m3-duration-long3: 550ms;      /* complex page transition */
+  --m3-duration-long4: 600ms;      /* shared axis */
+  --m3-duration-extra-long1: 700ms; /* staggered list */
+  --m3-duration-extra-long2: 800ms; /* complex multi-element */
+  --m3-duration-extra-long3: 900ms; /* orchestrated transition */
+  --m3-duration-extra-long4: 1000ms; /* elaborate onboarding */
   /* Legacy aliases */
   --m3-duration-short: var(--m3-duration-short4);
   --m3-duration-medium: var(--m3-duration-medium2);
@@ -387,31 +391,33 @@ body {
 .m3-chip::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--color-on-surface); opacity: 0; transition: opacity 15ms linear; pointer-events: none; }
 .m3-chip:hover::before { opacity: var(--m3-hover-opacity); }
 
-/* M3 Dialog */
+/* M3 Dialog — scrim: linear 150ms, dialog: emphasized-decel 400ms */
 .m3-dialog-backdrop {
   position: fixed; inset: 0; background: rgb(0 0 0 / 0.32); z-index: 50;
   display: flex; align-items: center; justify-content: center; padding: 1.5rem;
-  animation: m3-fade-in var(--m3-duration-short) var(--m3-ease);
+  animation: m3-fade-in var(--m3-duration-short3) var(--m3-ease-linear);
 }
 .m3-dialog {
   background: var(--color-surface-container-high); border-radius: var(--m3-shape-xl);
   max-width: 28rem; width: 100%; overflow: hidden;
-  animation: m3-scale-in var(--m3-duration-medium) var(--m3-ease-decel);
+  animation: m3-dialog-enter var(--m3-duration-medium4) var(--m3-ease-emphasized-decel) both;
   box-shadow: var(--m3-elevation-3);
 }
 
-/* M3 Snackbar */
+/* M3 Snackbar — emphasized-decel 250ms with slight overshoot */
 .m3-snackbar {
   display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem 1rem;
   border-radius: var(--m3-shape-md); font-size: 0.875rem; font-weight: 500;
   background: var(--color-inverse-surface); color: var(--color-inverse-on-surface);
-  box-shadow: var(--m3-elevation-3); animation: m3-slide-up var(--m3-duration-medium) var(--m3-ease);
+  box-shadow: var(--m3-elevation-3); animation: m3-snackbar-enter var(--m3-duration-medium1) var(--m3-ease-emphasized-decel) both;
 }
 
-/* M3 Animations */
+/* ── M3 Keyframe Animations ── */
 @keyframes m3-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes m3-scale-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes m3-scale-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
 @keyframes m3-slide-up { from { opacity: 0; transform: translateY(1rem); } to { opacity: 1; transform: translateY(0); } }
+@keyframes m3-dialog-enter { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes m3-menu-enter { from { opacity: 0; transform: scale(0.92) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 
 /* ── M3 Typography Classes ── */
 .m3-display-large { font: var(--m3-typescale-display-large); letter-spacing: -0.25px; }
@@ -685,93 +691,167 @@ body {
 
 /* ── M3 Motion: Icon Fill Transition ── */
 .material-symbols-outlined {
-  transition: font-variation-settings var(--m3-duration-short4) var(--m3-ease);
+  transition: font-variation-settings var(--m3-duration-short4) var(--m3-ease),
+              transform var(--m3-duration-short3) var(--m3-ease);
 }
 
-/* ── M3 Motion: Interactive Press Feedback ── */
+/* ── M3 Animated Icons: CSS Morphs ── */
+
+/* Star/Favorite: bounce on fill */
+.m3-icon-star {
+  transition: font-variation-settings var(--m3-duration-short4) var(--m3-ease),
+              transform var(--m3-duration-short3) var(--m3-ease-emphasized-decel),
+              color var(--m3-duration-short3) var(--m3-ease);
+}
+.m3-icon-star.active { animation: m3-icon-pop var(--m3-duration-short4) var(--m3-ease-emphasized-decel); }
+
+/* Delete/Trash: shake on hover */
+.m3-icon-shake:hover { animation: m3-icon-shake var(--m3-duration-medium2) var(--m3-ease) both; }
+
+/* Plus → X rotation */
+.m3-icon-rotate {
+  transition: transform var(--m3-duration-short4) var(--m3-ease-emphasized-decel);
+}
+.m3-icon-rotate.active { transform: rotate(45deg); }
+
+/* Arrow direction flip */
+.m3-icon-flip {
+  transition: transform var(--m3-duration-short4) var(--m3-ease-emphasized-decel);
+}
+.m3-icon-flip.active { transform: rotate(180deg); }
+
+/* Sort arrow flip */
+.m3-icon-sort {
+  transition: transform var(--m3-duration-short3) var(--m3-ease);
+  display: inline-block;
+}
+.m3-icon-sort.desc { transform: rotate(180deg); }
+
+/* Notification bell ring */
+.m3-icon-ring:hover { animation: m3-icon-ring var(--m3-duration-medium4) var(--m3-ease) both; }
+
+/* Download bounce */
+.m3-icon-download:hover { animation: m3-icon-bounce var(--m3-duration-medium2) var(--m3-ease) both; }
+
+/* Checkbox check draw */
+.m3-icon-check { animation: m3-icon-pop var(--m3-duration-short3) var(--m3-ease-emphasized-decel); }
+
+@keyframes m3-icon-pop {
+  0% { transform: scale(0.6); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes m3-icon-shake {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(-12deg); }
+  30% { transform: rotate(10deg); }
+  45% { transform: rotate(-8deg); }
+  60% { transform: rotate(5deg); }
+  75% { transform: rotate(-2deg); }
+}
+
+@keyframes m3-icon-ring {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-14deg); }
+  30% { transform: rotate(10deg); }
+  40% { transform: rotate(-8deg); }
+  50% { transform: rotate(4deg); }
+  60% { transform: rotate(-2deg); }
+  70%, 100% { transform: rotate(0deg); }
+}
+
+@keyframes m3-icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(3px); }
+  60% { transform: translateY(-2px); }
+  80% { transform: translateY(1px); }
+}
+
+/* ── M3 Motion: Interactive Press ── */
 .m3-press { transition: transform var(--m3-duration-short2) var(--m3-ease); }
 .m3-press:active { transform: scale(0.95); }
 
-/* ── M3 Motion: Card Hover Elevation ── */
-.m3-card { transition: background var(--m3-duration-short4) var(--m3-ease), box-shadow var(--m3-duration-short3) var(--m3-ease); }
+/* ── M3 Motion: Card — standard easing, short4 ── */
+.m3-card {
+  transition: background var(--m3-duration-short4) var(--m3-ease),
+              box-shadow var(--m3-duration-short4) var(--m3-ease);
+}
 .m3-card:hover { box-shadow: var(--m3-elevation-1); }
-.m3-card-outlined { transition: background var(--m3-duration-short4) var(--m3-ease), box-shadow var(--m3-duration-short3) var(--m3-ease), border-color var(--m3-duration-short4) var(--m3-ease); }
+.m3-card-outlined {
+  transition: background var(--m3-duration-short4) var(--m3-ease),
+              box-shadow var(--m3-duration-short4) var(--m3-ease),
+              border-color var(--m3-duration-short4) var(--m3-ease);
+}
 .m3-card-outlined:hover { box-shadow: var(--m3-elevation-1); }
 
-/* ── M3 Motion: Checkbox Tick Draw ── */
-.m3-checkbox:checked { animation: m3-checkbox-pop var(--m3-duration-short3) var(--m3-ease-decel); }
+/* ── M3 Motion: Checkbox — short2, emphasized-decel ── */
+.m3-checkbox:checked { animation: m3-checkbox-pop var(--m3-duration-short2) var(--m3-ease-emphasized-decel); }
 @keyframes m3-checkbox-pop {
   0% { transform: scale(0.8); }
   50% { transform: scale(1.1); }
   100% { transform: scale(1); }
 }
 
-/* ── M3 Motion: Switch Thumb Spring ── */
+/* ── M3 Motion: Switch — short4, spring ── */
 .m3-switch::after { transition: all var(--m3-duration-short4) cubic-bezier(0.18, 0.89, 0.32, 1.28); }
 
-/* ── M3 Motion: FAB Entrance ── */
-.m3-fab, .m3-fab-extended { animation: m3-fab-enter var(--m3-duration-medium2) var(--m3-ease-decel) both; }
+/* ── M3 Motion: FAB — emphasized-decel, medium2 ── */
+.m3-fab, .m3-fab-extended { animation: m3-fab-enter var(--m3-duration-medium2) var(--m3-ease-emphasized-decel) both; }
 @keyframes m3-fab-enter {
   from { opacity: 0; transform: scale(0.6); }
   to { opacity: 1; transform: scale(1); }
 }
 
-/* ── M3 Motion: Dialog Entrance (improved) ── */
-.m3-dialog { animation: m3-dialog-enter var(--m3-duration-medium2) var(--m3-ease-decel) both; }
-@keyframes m3-dialog-enter {
-  from { opacity: 0; transform: scale(0.85) translateY(8px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
+/* ── M3 Motion: Dialog — emphasized-decel, medium4 (400ms) ── */
+.m3-dialog { animation: m3-dialog-enter var(--m3-duration-medium4) var(--m3-ease-emphasized-decel) both; }
 
-/* ── M3 Motion: Menu Entrance (scale from origin) ── */
-.m3-menu { animation: m3-menu-enter var(--m3-duration-short4) var(--m3-ease-decel) both; transform-origin: top left; }
-@keyframes m3-menu-enter {
-  from { opacity: 0; transform: scaleY(0.6) scaleX(0.9); }
-  to { opacity: 1; transform: scaleY(1) scaleX(1); }
-}
+/* ── M3 Motion: Menu — emphasized-decel, short4 ── */
+.m3-menu { animation: m3-menu-enter var(--m3-duration-short4) var(--m3-ease-emphasized-decel) both; transform-origin: top left; }
 
-/* ── M3 Motion: Snackbar Entrance (improved spring feel) ── */
-.m3-snackbar { animation: m3-snackbar-enter var(--m3-duration-medium1) cubic-bezier(0.18, 0.89, 0.32, 1.15) both; }
+/* ── M3 Motion: Snackbar — emphasized-decel, medium1 ── */
+.m3-snackbar { animation: m3-snackbar-enter var(--m3-duration-medium1) var(--m3-ease-emphasized-decel) both; }
 @keyframes m3-snackbar-enter {
   from { opacity: 0; transform: translateY(100%) scale(0.95); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ── M3 Motion: Nav Item Active Indicator ── */
-.m3-nav-item.active { animation: m3-nav-indicator var(--m3-duration-short4) var(--m3-ease-decel) both; }
+/* ── M3 Motion: Nav Active Indicator — standard, medium2 ── */
+.m3-nav-item.active { animation: m3-nav-indicator var(--m3-duration-medium2) var(--m3-ease) both; }
 @keyframes m3-nav-indicator {
   from { background: transparent; }
   to { background: var(--color-secondary-container); }
 }
 
-/* ── M3 Motion: Staggered List Items ── */
-.m3-stagger > * { animation: m3-stagger-in var(--m3-duration-medium2) var(--m3-ease-decel) both; }
+/* ── M3 Motion: Staggered List — emphasized-decel, medium2, 25ms stagger ── */
+.m3-stagger > * { animation: m3-stagger-in var(--m3-duration-medium2) var(--m3-ease-emphasized-decel) both; }
 .m3-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.m3-stagger > *:nth-child(2) { animation-delay: 30ms; }
-.m3-stagger > *:nth-child(3) { animation-delay: 60ms; }
-.m3-stagger > *:nth-child(4) { animation-delay: 90ms; }
-.m3-stagger > *:nth-child(5) { animation-delay: 120ms; }
-.m3-stagger > *:nth-child(n+6) { animation-delay: 150ms; }
+.m3-stagger > *:nth-child(2) { animation-delay: 25ms; }
+.m3-stagger > *:nth-child(3) { animation-delay: 50ms; }
+.m3-stagger > *:nth-child(4) { animation-delay: 75ms; }
+.m3-stagger > *:nth-child(5) { animation-delay: 100ms; }
+.m3-stagger > *:nth-child(n+6) { animation-delay: 125ms; }
 @keyframes m3-stagger-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── M3 Motion: Tooltip Entrance ── */
-.m3-tooltip { animation: m3-tooltip-enter var(--m3-duration-short3) var(--m3-ease-decel) both; }
+/* ── M3 Motion: Tooltip — standard-decel, short3 ── */
+.m3-tooltip { animation: m3-tooltip-enter var(--m3-duration-short3) var(--m3-ease-standard-decel) both; }
 @keyframes m3-tooltip-enter {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.92) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* ── M3 Motion: Badge Pop-in ── */
+/* ── M3 Motion: Badge Pop — short3, spring ── */
 .m3-badge { animation: m3-badge-pop var(--m3-duration-short3) cubic-bezier(0.18, 0.89, 0.32, 1.28) both; }
 @keyframes m3-badge-pop {
   from { transform: scale(0); }
   to { transform: scale(1); }
 }
 
-/* ── M3 Motion: Progress Bar Indeterminate ── */
+/* ── M3 Motion: Progress Indeterminate — standard, infinite ── */
 .m3-progress-indeterminate .m3-progress-fill {
   width: 40%; animation: m3-progress-slide 1.5s var(--m3-ease) infinite;
 }
@@ -780,8 +860,29 @@ body {
   100% { transform: translateX(350%); }
 }
 
-/* ── M3 Motion: Icon Button Hover Scale ── */
-.m3-icon-btn { transition: color var(--m3-duration-short3) var(--m3-ease); }
-.m3-icon-btn .material-symbols-outlined { transition: transform var(--m3-duration-short3) var(--m3-ease), font-variation-settings var(--m3-duration-short4) var(--m3-ease); }
+/* ── M3 Motion: Icon Button — standard, short2/short3 ── */
+.m3-icon-btn { transition: color var(--m3-duration-short2) var(--m3-ease); }
+.m3-icon-btn .material-symbols-outlined {
+  transition: transform var(--m3-duration-short2) var(--m3-ease),
+              font-variation-settings var(--m3-duration-short3) var(--m3-ease);
+}
 .m3-icon-btn:hover .material-symbols-outlined { transform: scale(1.08); }
 .m3-icon-btn:active .material-symbols-outlined { transform: scale(0.92); }
+
+/* ── M3 Motion: Content Fade (tabs, page transitions) — standard-decel, short4 ── */
+@keyframes m3-content-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-settings-fade { animation: m3-content-fade var(--m3-duration-short4) var(--m3-ease-standard-decel) forwards; }
+
+/* ── M3 Motion: Shared transition classes ── */
+.m3-transition-container { transition: all var(--m3-duration-medium2) var(--m3-ease); }
+.m3-transition-enter { transition: all var(--m3-duration-medium2) var(--m3-ease-emphasized-decel); }
+.m3-transition-exit { transition: all var(--m3-duration-short4) var(--m3-ease-emphasized-accel); }
+.m3-transition-text { transition: opacity var(--m3-duration-short3) var(--m3-ease-standard-decel); }
+.m3-transition-icon { transition: all var(--m3-duration-short2) var(--m3-ease); }
+
+/* ── Utility: Spin ── */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.animate-spin { animation: spin 1.5s linear infinite; }

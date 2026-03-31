@@ -37,7 +37,12 @@ export const files = sqliteTable('files', {
 	encrypted: integer('encrypted', { mode: 'boolean' }).default(false),
 	iv: text('iv'), // AES-GCM IV (base64)
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+	deletedBy: text('deleted_by'),
+	starred: integer('starred', { mode: 'boolean' }).default(false),
+	scanStatus: text('scan_status').default('pending'),
+	scanResult: text('scan_result')
 });
 
 export const fileMetadata = sqliteTable('file_metadata', {
@@ -56,6 +61,37 @@ export const fileMetadata = sqliteTable('file_metadata', {
 	extractedText: text('extracted_text')
 });
 
+export const fileVersions = sqliteTable('file_versions', {
+	id: text('id').primaryKey(),
+	fileId: text('file_id')
+		.notNull()
+		.references(() => files.id),
+	versionNumber: integer('version_number').notNull(),
+	size: integer('size').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export const tags = sqliteTable('tags', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id),
+	name: text('name').notNull(),
+	color: text('color').notNull().default('#9ca3af'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export const fileTags = sqliteTable('file_tags', {
+	id: text('id').primaryKey(),
+	fileId: text('file_id')
+		.notNull()
+		.references(() => files.id),
+	tagId: text('tag_id')
+		.notNull()
+		.references(() => tags.id),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
 export const shares = sqliteTable('shares', {
 	id: text('id').primaryKey(),
 	token: text('token').notNull().unique(),
@@ -69,5 +105,19 @@ export const shares = sqliteTable('shares', {
 	expiresAt: integer('expires_at', { mode: 'timestamp' }),
 	downloadCount: integer('download_count').default(0),
 	maxDownloads: integer('max_downloads'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export const notifications = sqliteTable('notifications', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id),
+	type: text('type').notNull(),
+	title: text('title').notNull(),
+	body: text('body'),
+	icon: text('icon').default('info'),
+	actionUrl: text('action_url'),
+	read: integer('read', { mode: 'boolean' }).default(false),
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
 });

@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { files, fileMetadata } from '$lib/server/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, isNull } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		})
 		.from(files)
 		.leftJoin(fileMetadata, eq(files.id, fileMetadata.fileId))
-		.where(and(eq(files.userId, locals.user.id), eq(files.isFolder, false)))
+		.where(and(eq(files.userId, locals.user.id), eq(files.isFolder, false), isNull(files.deletedAt)))
 		.all()
 		.filter((f) => f.mimeType?.startsWith('image/'))
 		.sort((a, b) => {
@@ -43,5 +43,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 		(groups[key] ??= []).push(photo);
 	}
 
-	return json({ groups });
+	return json({
+		groups,
+		totalCount: photos.length,
+		totalSize: photos.reduce((sum, p) => sum + p.size, 0)
+	});
 };

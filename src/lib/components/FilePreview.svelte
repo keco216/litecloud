@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { formatFileSize } from '$lib/utils/filesize';
 	import { loadMasterKey, decryptFile } from '$lib/crypto';
+	import { invalidateAll } from '$app/navigation';
+	import { t } from '$lib/i18n/index.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	let { open = false, fileId = '', fileName = '', fileSize = 0, mimeType = '', encrypted = false, iv = null as string | null, onclose }:
 		{ open: boolean; fileId: string; fileName: string; fileSize: number; mimeType: string; encrypted?: boolean; iv?: string | null; onclose: () => void } = $props();
@@ -9,6 +13,13 @@
 	let loading = $state(false);
 	let blobUrl = $state('');
 	let lastFileId = '';
+
+	// Version history state
+	type VersionItem = { id: string; fileId: string; versionNumber: number; size: number; createdAt: string };
+	let showVersions = $state(false);
+	let versions: VersionItem[] = $state([]);
+	let versionsLoading = $state(false);
+	let confirmRestore = $state({ open: false, versionId: '', versionNumber: 0 });
 
 	const isImage = $derived(mimeType.startsWith('image/'));
 	const isVideo = $derived(mimeType.startsWith('video/'));
@@ -42,11 +53,16 @@
 		return parts.length > 1 ? parts.pop()!.toUpperCase() : '';
 	}
 
-	// Only trigger load when open+fileId changes, not when blobUrl changes
+	function formatDate(d: string) {
+		return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(d));
+	}
+
 	$effect(() => {
 		if (!open || !fileId) return;
 		if (fileId === lastFileId) return;
 		lastFileId = fileId;
+		showVersions = false;
+		versions = [];
 		loadPreview();
 	});
 
@@ -84,9 +100,43 @@
 		}
 	}
 
+	async function loadVersions() {
+		if (showVersions) { showVersions = false; return; }
+		versionsLoading = true;
+		const res = await fetch(`/api/files/versions?id=${fileId}`);
+		if (res.ok) {
+			const data = await res.json();
+			versions = data.versions;
+		}
+		versionsLoading = false;
+		showVersions = true;
+	}
+
+	async function doRestore() {
+		const { versionId } = confirmRestore;
+		confirmRestore = { open: false, versionId: '', versionNumber: 0 };
+		const res = await fetch('/api/files/versions', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ fileId, versionId })
+		});
+		if (res.ok) {
+			(window as any).__lc_toast?.(t('versions.restore') + ' ✓', 'success');
+			await invalidateAll();
+			// Reload versions list
+			showVersions = false;
+			loadVersions();
+			// Reload preview
+			lastFileId = '';
+			loadPreview();
+		}
+	}
+
 	function close() {
 		lastFileId = '';
 		textContent = '';
+		showVersions = false;
+		versions = [];
 		if (blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
 		blobUrl = '';
 		onclose();
@@ -99,12 +149,12 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-		style="animation: m3-fade-in 200ms var(--m3-ease);"
+		style="animation: m3-fade-in var(--m3-duration-short3) var(--m3-ease-linear);"
 		onclick={(e) => { if (e.target === e.currentTarget) close(); }}
 	>
-		<div class="bg-surface-container-lowest rounded-[1.75rem] w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" style="animation: m3-dialog-enter 300ms var(--m3-ease-decel) both; box-shadow: var(--m3-elevation-3);">
+		<div class="bg-surface-container-lowest rounded-[1.75rem] w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" style="animation: m3-dialog-enter var(--m3-duration-medium4) var(--m3-ease-emphasized-decel) both; box-shadow: var(--m3-elevation-3);">
 
-			<!-- Header — always on top, always clickable -->
+			<!-- Header -->
 			<div class="px-6 py-4 flex items-center justify-between flex-shrink-0 border-b border-outline-variant/10 relative z-20">
 				<div class="flex items-center gap-3 min-w-0">
 					<div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background: {fi.color}12;">
@@ -116,7 +166,7 @@
 					</div>
 				</div>
 				<div class="flex items-center gap-2 flex-shrink-0">
-					<a href={downloadUrl} class="m3-icon-btn" aria-label="Download">
+					<a href={downloadUrl} class="m3-icon-btn" aria-label={t('files.download')}>
 						<span class="material-symbols-outlined">download</span>
 					</a>
 					<button
@@ -124,12 +174,58 @@
 						onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); close(); }}
 						onclick={(e) => { e.preventDefault(); e.stopPropagation(); close(); }}
 						class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer hover:bg-surface-container-highest transition-colors"
-						aria-label="Close"
+						aria-label={t('share.close')}
 					>
 						<span class="material-symbols-outlined">close</span>
 					</button>
 				</div>
 			</div>
+
+			<!-- Version history toggle -->
+			{#if !encrypted}
+				<div class="px-6 py-2 border-b border-outline-variant/10 flex-shrink-0">
+					<button onclick={loadVersions} class="m3-btn m3-btn-text !h-8 !px-3 text-xs">
+						<span class="material-symbols-outlined text-[16px]">history</span>
+						{#if versionsLoading}
+							...
+						{:else if showVersions}
+							{t('versions.title')}
+						{:else}
+							{t('versions.title')}{versions.length > 0 ? ` (${versions.length})` : ''}
+						{/if}
+					</button>
+				</div>
+
+				{#if showVersions}
+					<div class="px-6 py-3 bg-surface-container-low max-h-48 overflow-y-auto border-b border-outline-variant/10 flex-shrink-0">
+						{#if versions.length === 0}
+							<p class="m3-body-small text-on-surface-variant py-2">{t('versions.noVersions')}</p>
+						{:else}
+							{#each versions as v (v.id)}
+								<div class="flex items-center justify-between py-2 group">
+									<div class="m3-body-small">
+										<span class="font-medium text-on-surface">{t('versions.version', { n: String(v.versionNumber) })}</span>
+										<span class="text-on-surface-variant ml-2">{formatDate(v.createdAt)}</span>
+										<span class="text-on-surface-variant ml-2">{formatFileSize(v.size)}</span>
+									</div>
+									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+										<Tooltip text={t('files.download')}>
+											<a href="/api/files/versions/download?fileId={fileId}&versionId={v.id}" class="m3-icon-btn !w-7 !h-7">
+												<span class="material-symbols-outlined text-[16px]">download</span>
+											</a>
+										</Tooltip>
+										<Tooltip text={t('versions.restore')}>
+											<button onclick={() => confirmRestore = { open: true, versionId: v.id, versionNumber: v.versionNumber }} class="m3-icon-btn !w-7 !h-7">
+												<span class="material-symbols-outlined text-[16px]">restore</span>
+											</button>
+										</Tooltip>
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				{/if}
+			{/if}
 
 			<!-- Content -->
 			<div class="flex-1 overflow-auto bg-surface-container-low relative">
@@ -168,7 +264,6 @@
 					<pre class="p-6 m3-body-small font-mono leading-relaxed whitespace-pre-wrap break-words text-on-surface">{textContent}</pre>
 
 				{:else}
-					<!-- Fallback: file info for unsupported types -->
 					<div class="flex flex-col items-center justify-center p-12 gap-4">
 						<div class="w-20 h-20 rounded-2xl flex items-center justify-center" style="background: {fi.color}10;">
 							<span class="material-symbols-outlined text-[40px]" style="color: {fi.color};">{fi.icon}</span>
@@ -178,10 +273,9 @@
 							<p class="m3-body-medium text-on-surface-variant">{formatFileSize(fileSize)}</p>
 							{#if mimeType}<p class="m3-label-small text-on-surface-variant mt-1">{mimeType}</p>{/if}
 						</div>
-						<p class="m3-body-small text-on-surface-variant mt-2">Preview not available for this file type</p>
 						<a href={downloadUrl} class="m3-btn m3-btn-filled mt-2">
 							<span class="material-symbols-outlined text-[18px]">download</span>
-							Download
+							{t('files.download')}
 						</a>
 					</div>
 				{/if}
@@ -189,3 +283,12 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	open={confirmRestore.open}
+	title={t('versions.restoreTitle')}
+	message={t('versions.restoreMsg', { n: String(confirmRestore.versionNumber) })}
+	confirmLabel={t('versions.restore')}
+	onconfirm={doRestore}
+	oncancel={() => confirmRestore = { open: false, versionId: '', versionNumber: 0 }}
+/>

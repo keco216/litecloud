@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { createUser, createSession } from '$lib/server/auth';
+import { registerLimiter } from '$lib/server/ratelimit';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -7,7 +8,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request, cookies, getClientAddress }) => {
 		const data = await request.formData();
 		const email = data.get('email')?.toString().trim();
 		const password = data.get('password')?.toString();
@@ -25,6 +26,14 @@ export const actions: Actions = {
 			return fail(400, { error: 'Passwords do not match.', email });
 		}
 
+		const ip = getClientAddress();
+		const regKey = `register:${ip}`;
+		const limit = registerLimiter.check(regKey);
+
+		if (!limit.allowed) {
+			return fail(429, { error: 'Too many registration attempts. Please try again later.', email });
+		}
+
 		try {
 			const user = await createUser(email, password);
 			createSession(user.id, cookies);
@@ -35,7 +44,6 @@ export const actions: Actions = {
 			throw e;
 		}
 
-		// SECURITY: Never return password. Client retains it from form input.
 		return { setupEncryption: true };
 	}
 };

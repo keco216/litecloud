@@ -1,208 +1,84 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import { t, getLocale, setLocale, locales, localeNames } from '$lib/i18n/index.svelte';
-	import type { Locale } from '$lib/i18n/index.svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { t } from '$lib/i18n/index.svelte';
+	import SettingsGeneral from '$lib/components/settings/SettingsGeneral.svelte';
+	import SettingsTags from '$lib/components/settings/SettingsTags.svelte';
+	import SettingsSecurity from '$lib/components/settings/SettingsSecurity.svelte';
+	import SettingsAdvanced from '$lib/components/settings/SettingsAdvanced.svelte';
 	import type { PageData } from './$types';
+
 	let { data }: { data: PageData } = $props();
-	let confirmDisable2FA = $state(false);
 
-	let totpEnabled = $state(false);
-	$effect(() => { totpEnabled = data.totpEnabled; });
-	let qrCode = $state(''); let secretKey = $state(''); let verifyCode = $state('');
-	let setupLoading = $state(false); let verifyError = $state(''); let showSetup = $state(false);
+	const activeTab = $derived($page.url.searchParams.get('tab') || 'general');
 
-	// Theme switcher
-	type ThemeMode = 'system' | 'light' | 'dark';
-	let themeMode: ThemeMode = $state((browser && localStorage.getItem('lc-theme') as ThemeMode) || 'system');
+	const tabs = [
+		{ id: 'general', labelKey: 'settings.general', icon: 'settings' },
+		{ id: 'tags', labelKey: 'tags.title', icon: 'label' },
+		{ id: 'security', labelKey: 'settings.security', icon: 'shield' },
+		{ id: 'advanced', labelKey: 'settings.advanced', icon: 'build' }
+	];
 
-	function applyTheme(mode: ThemeMode) {
-		themeMode = mode;
-		if (browser) {
-			localStorage.setItem('lc-theme', mode);
-			if (mode === 'dark') {
-				document.documentElement.classList.add('dark-override');
-				document.documentElement.classList.remove('light-override');
-			} else if (mode === 'light') {
-				document.documentElement.classList.add('light-override');
-				document.documentElement.classList.remove('dark-override');
-			} else {
-				document.documentElement.classList.remove('dark-override', 'light-override');
-			}
-		}
+	function switchTab(tabId: string) {
+		const url = tabId === 'general' ? '/settings' : `/settings?tab=${tabId}`;
+		goto(url, { replaceState: true, noScroll: true });
 	}
-
-	// Apply saved theme on mount
-	$effect(() => { if (browser) applyTheme(themeMode); });
-
-	type Backup = { name: string; size: number; date: string; type: string };
-	let backups: Backup[] = $state([]); let backupLoading = $state(false);
-	async function loadBackups() { const r = await fetch('/api/backup'); if (r.ok) backups = (await r.json()).backups; }
-	function fmtSize(b: number) { return b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB'; }
-	$effect(() => { loadBackups(); });
-
-	async function startSetup() { setupLoading = true; const r = await fetch('/api/auth/totp/setup', { method: 'POST' }); if (r.ok) { const d = await r.json(); qrCode = d.qr; secretKey = d.secret; showSetup = true; } setupLoading = false; }
-	async function confirmSetup() { verifyError = ''; const r = await fetch('/api/auth/totp/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: verifyCode, mode: 'setup' }) }); if (r.ok) { totpEnabled = true; showSetup = false; qrCode = ''; secretKey = ''; verifyCode = ''; } else { verifyError = t('totp.invalidCode'); verifyCode = ''; } }
-	async function disable2FA() { const r = await fetch('/api/auth/totp/disable', { method: 'POST' }); if (r.ok) { totpEnabled = false; confirmDisable2FA = false; } }
 </script>
 
 <svelte:head><title>{t('settings.title')} — {t('app.name')}</title></svelte:head>
 
-<div class="px-8 py-2 max-w-2xl">
-	<h2 class="m3-headline-small text-on-surface mb-6">{t('settings.title')}</h2>
+<div class="px-6 py-4">
+	<h1 class="m3-headline-small text-on-surface mb-6">{t('settings.title')}</h1>
 
-	<!-- Language -->
-	<div class="m3-card mb-4">
-		<div class="flex items-center gap-3 mb-3">
-			<span class="material-symbols-outlined text-primary">translate</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.language')}</h3>
-		</div>
-		<div class="m3-segmented w-full">
-			{#each locales as loc (loc)}
+	<div class="flex flex-col lg:flex-row gap-6 lg:gap-10 max-w-4xl">
+
+		<!-- Sidebar Navigation (Desktop) -->
+		<nav class="hidden lg:flex flex-col gap-0.5 w-52 flex-shrink-0 sticky top-6 self-start">
+			{#each tabs as tab (tab.id)}
 				<button
-					onclick={() => setLocale(loc)}
-					class="m3-segmented-btn flex-1 {getLocale() === loc ? 'active' : ''}"
+					onclick={() => switchTab(tab.id)}
+					class="flex items-center gap-3 px-4 py-2.5 rounded-full text-sm transition-colors duration-200 text-left cursor-pointer
+						{activeTab === tab.id
+							? 'bg-secondary-container text-on-secondary-container font-medium'
+							: 'text-on-surface-variant hover:bg-surface-container-highest/60'}"
 				>
-					{#if getLocale() === loc}
-						<span class="material-symbols-outlined" style="font-size: 18px;">check</span>
-					{/if}
-					{localeNames[loc]}
+					<span class="material-symbols-outlined text-[20px]" style={activeTab === tab.id ? "font-variation-settings: 'FILL' 1;" : ''}>{tab.icon}</span>
+					{t(tab.labelKey)}
 				</button>
 			{/each}
-		</div>
-	</div>
+		</nav>
 
-	<!-- Appearance -->
-	<div class="m3-card mb-4">
-		<div class="flex items-center gap-3 mb-3">
-			<span class="material-symbols-outlined text-primary">palette</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.appearance')}</h3>
-		</div>
-		<div class="m3-segmented w-full">
-			{#each [
-				{ mode: 'system' as ThemeMode, icon: 'brightness_auto', labelKey: 'settings.system' },
-				{ mode: 'light' as ThemeMode, icon: 'light_mode', labelKey: 'settings.light' },
-				{ mode: 'dark' as ThemeMode, icon: 'dark_mode', labelKey: 'settings.dark' }
-			] as opt (opt.mode)}
+		<!-- Horizontal Tabs (Mobile) -->
+		<nav class="lg:hidden flex gap-1 overflow-x-auto -mx-2 px-2 pb-2" style="scrollbar-width: none;">
+			{#each tabs as tab (tab.id)}
 				<button
-					onclick={() => applyTheme(opt.mode)}
-					class="m3-segmented-btn flex-1 {themeMode === opt.mode ? 'active' : ''}"
+					onclick={() => switchTab(tab.id)}
+					class="flex items-center gap-2 px-4 py-2 rounded-full text-sm whitespace-nowrap transition-colors duration-200 flex-shrink-0 cursor-pointer
+						{activeTab === tab.id
+							? 'bg-secondary-container text-on-secondary-container font-medium'
+							: 'text-on-surface-variant hover:bg-surface-container-highest/60'}"
 				>
-					{#if themeMode === opt.mode}
-						<span class="material-symbols-outlined" style="font-size: 18px;">check</span>
-					{:else}
-						<span class="material-symbols-outlined" style="font-size: 18px;">{opt.icon}</span>
-					{/if}
-					{t(opt.labelKey)}
+					<span class="material-symbols-outlined text-[18px]">{tab.icon}</span>
+					{t(tab.labelKey)}
 				</button>
 			{/each}
-		</div>
-	</div>
+		</nav>
 
-	<!-- Encryption -->
-	<div class="m3-card mb-4">
-		<div class="flex items-center gap-3 mb-2">
-			<span class="material-symbols-outlined text-primary">lock</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.encryption')}</h3>
-		</div>
-		{#if data.hasEncryption}
-			<p class="text-sm text-on-surface-variant">{t('settings.encryptionActive')}</p>
-			<div class="mt-2 m3-chip !border-primary/30 !text-primary">
-				<span class="material-symbols-outlined !text-[14px]">check_circle</span> {t('settings.active')}
-			</div>
-		{:else}
-			<p class="text-sm text-on-surface-variant">{t('settings.encryptionInactive')}</p>
-		{/if}
-	</div>
-
-	<!-- 2FA -->
-	<div class="m3-card mb-4">
-		<div class="flex items-center gap-3 mb-2">
-			<span class="material-symbols-outlined text-primary">security</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.twoFactor')}</h3>
-		</div>
-
-		{#if totpEnabled && !showSetup}
-			<p class="text-sm text-on-surface-variant mb-3">{t('settings.2faActive')}</p>
-			<div class="flex items-center gap-3">
-				<span class="m3-chip !border-primary/30 !text-primary"><span class="material-symbols-outlined !text-[14px]">check_circle</span> {t('settings.enabled')}</span>
-				<button onclick={() => confirmDisable2FA = true} class="m3-btn m3-btn-text !text-error !h-8 text-xs">{t('settings.disable')}</button>
-			</div>
-		{:else if showSetup}
-			<div class="space-y-4">
-				<p class="text-sm text-on-surface-variant">{t('settings.scanQR')}</p>
-				<div class="flex justify-center">
-					<img src={qrCode} alt="TOTP QR" class="w-48 h-48 rounded-xl" />
+		<!-- Content -->
+		<div class="flex-1 min-w-0">
+			{#key activeTab}
+				<div class="animate-settings-fade">
+					{#if activeTab === 'general'}
+						<SettingsGeneral />
+					{:else if activeTab === 'tags'}
+						<SettingsTags />
+					{:else if activeTab === 'security'}
+						<SettingsSecurity {data} />
+					{:else if activeTab === 'advanced'}
+						<SettingsAdvanced />
+					{/if}
 				</div>
-				<details class="text-xs text-on-surface-variant">
-					<summary class="cursor-pointer hover:text-on-surface">{t('settings.cantScan')}</summary>
-					<code class="block mt-2 p-3 bg-surface-container rounded-xl font-mono text-[11px] break-all select-all">{secretKey}</code>
-				</details>
-				<div>
-					<label class="m3-label">{t('settings.verificationCode')}</label>
-					<input type="text" bind:value={verifyCode} maxlength="6" inputmode="numeric" placeholder="000000"
-						class="m3-input text-center text-lg font-mono tracking-widest"
-						oninput={(e) => { verifyCode = (e.target as HTMLInputElement).value.replace(/\D/g, ''); }}
-						onkeydown={(e) => { if (e.key === 'Enter') confirmSetup(); }} />
-				</div>
-				{#if verifyError}<div class="text-sm text-error bg-error-container/30 rounded-xl px-4 py-3">{verifyError}</div>{/if}
-				<div class="flex gap-2">
-					<button onclick={confirmSetup} disabled={verifyCode.length !== 6} class="m3-btn m3-btn-filled flex-1">{t('settings.verifyEnable')}</button>
-					<button onclick={() => showSetup = false} class="m3-btn m3-btn-text">{t('settings.cancel')}</button>
-				</div>
-			</div>
-		{:else}
-			<p class="text-sm text-on-surface-variant mb-3">{t('settings.2faInactive')}</p>
-			<button onclick={startSetup} disabled={setupLoading} class="m3-btn m3-btn-filled">
-				{setupLoading ? t('settings.settingUp') : t('settings.enable2FA')}
-			</button>
-		{/if}
-	</div>
-
-	<!-- Backups -->
-	<div class="m3-card mb-4">
-		<div class="flex items-center gap-3 mb-2">
-			<span class="material-symbols-outlined text-primary">backup</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.backups')}</h3>
+			{/key}
 		</div>
-		<p class="text-sm text-on-surface-variant mb-3">{t('settings.backupsInfo')}</p>
-		<button onclick={async () => { backupLoading = true; await fetch('/api/backup', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{"type":"daily"}' }); await loadBackups(); backupLoading = false; }}
-			disabled={backupLoading} class="m3-btn m3-btn-tonal !h-9 text-xs mb-3">
-			<span class="material-symbols-outlined text-base">add</span>
-			{backupLoading ? t('settings.creatingBackup') : t('settings.createBackup')}
-		</button>
-		{#if backups.length > 0}
-			<div class="space-y-1.5 max-h-40 overflow-y-auto">
-				{#each backups as b (b.name)}
-					<div class="flex items-center justify-between text-xs py-1.5 px-3 bg-surface-container rounded-lg">
-						<span class="text-on-surface truncate">{b.name}</span>
-						<span class="text-on-surface-variant ml-2 flex-shrink-0">{fmtSize(b.size)}</span>
-					</div>
-				{/each}
-			</div>
-		{:else}<p class="text-xs text-on-surface-variant">{t('settings.noBackups')}</p>{/if}
-	</div>
-
-	<!-- WebDAV -->
-	<div class="m3-card">
-		<div class="flex items-center gap-3 mb-2">
-			<span class="material-symbols-outlined text-primary">dns</span>
-			<h3 class="m3-title-small text-on-surface">{t('settings.webdav')}</h3>
-		</div>
-		<p class="text-sm text-on-surface-variant mb-2">{t('settings.webdavInfo')}</p>
-		<div class="bg-surface-container rounded-xl p-3 font-mono text-xs text-on-surface select-all">
-			{typeof window !== 'undefined' ? window.location.origin : ''}/dav/
-		</div>
-		<p class="text-xs text-on-surface-variant mt-2">{t('settings.webdavCredentials')}</p>
 	</div>
 </div>
-
-<ConfirmDialog
-	open={confirmDisable2FA}
-	title={t('settings.disable2FATitle')}
-	message={t('settings.disable2FAMsg')}
-	confirmLabel={t('settings.disable')}
-	danger={true}
-	onconfirm={disable2FA}
-	oncancel={() => confirmDisable2FA = false}
-/>

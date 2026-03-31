@@ -8,6 +8,7 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
+	import TagPicker from '$lib/components/TagPicker.svelte';
 	import { loadMasterKey, encryptFile, decryptFile } from '$lib/crypto';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n/index.svelte';
@@ -41,6 +42,49 @@
 	let moveFileIds: string[] = $state([]);
 	let moveFolders: { name: string; path: string }[] = $state([]);
 	let ctxMenu = $state({ open: false, x: 0, y: 0, file: null as typeof data.files[0] | null });
+	let tagPicker = $state({ open: false, x: 0, y: 0, fileIds: [] as string[] });
+
+	// Collect all file-tag pairs for the TagPicker
+	const allFileTags = $derived(
+		data.files.flatMap((f: any) => (f.tags || []).map((t: any) => ({ fileId: f.id, tagId: t.id })))
+	);
+
+	function openTagPicker(fileIds: string[], x: number, y: number) {
+		tagPicker = { open: true, x, y, fileIds };
+	}
+
+	// Tags + Favorites
+	type UserTag = { id: string; name: string; color: string; fileCount: number };
+	let userTags: UserTag[] = $state([]);
+	let activeFilters = $state(new Set<string>());
+
+	async function loadTags() {
+		const res = await fetch('/api/tags');
+		if (res.ok) userTags = (await res.json()).tags;
+	}
+
+	async function toggleStar(fileId: string, starred: boolean) {
+		await fetch('/api/files/star', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [fileId], starred }) });
+		await invalidateAll();
+	}
+
+	async function assignTag(fileIds: string[], tagId: string) {
+		await fetch('/api/tags/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileIds, tagId }) });
+		await invalidateAll(); loadTags();
+	}
+
+	async function removeTag(fileIds: string[], tagId: string) {
+		await fetch('/api/tags/assign', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileIds, tagId }) });
+		await invalidateAll(); loadTags();
+	}
+
+	function toggleFilter(key: string) {
+		const next = new Set(activeFilters);
+		if (next.has(key)) next.delete(key); else next.add(key);
+		activeFilters = next;
+	}
+
+	$effect(() => { if (browser) loadTags(); });
 
 	function onContextMenu(e: MouseEvent, file: typeof data.files[0]) {
 		e.preventDefault();
@@ -53,6 +97,7 @@
 		else items.push({ icon: 'visibility', label: t('files.preview'), action: () => openPreview(file) });
 		items.push({ icon: 'edit', label: t('files.rename'), action: () => startRename(file.id, file.name) });
 		items.push({ icon: 'drive_file_move', label: t('files.moveTo'), action: () => openMoveDialog([file.id]) });
+		items.push({ icon: 'label', label: t('tags.assignTags'), action: () => openTagPicker([file.id], ctxMenu.x, ctxMenu.y) });
 		items.push({ icon: 'share', label: t('files.share'), action: () => openShare(file.id, file.name, file.isFolder ?? false) });
 		if (!file.isFolder) {
 			items.push({ icon: 'download', label: t('files.download'), action: () => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null) });
@@ -67,9 +112,24 @@
 	let renameInput: HTMLInputElement | undefined;
 	let folderInput: HTMLInputElement | undefined;
 
-	// Sorted files (folders first)
+	// Sorted + filtered files (folders first)
 	const sortedFiles = $derived.by(() => {
-		const items = [...data.files];
+		let items = [...data.files];
+
+		// Apply filters
+		if (activeFilters.size > 0) {
+			items = items.filter((f) => {
+				for (const filter of activeFilters) {
+					if (filter === 'starred' && !f.starred) return false;
+					if (filter.startsWith('tag:')) {
+						const tagId = filter.slice(4);
+						if (!(f as any).tags?.some((t: any) => t.id === tagId)) return false;
+					}
+				}
+				return true;
+			});
+		}
+
 		items.sort((a, b) => {
 			if (a.isFolder && !b.isFolder) return -1;
 			if (!a.isFolder && b.isFolder) return 1;
@@ -152,13 +212,21 @@
 
 	async function executeDelete() {
 		const ids = confirmDelete.ids;
-		const count = ids.length;
 		confirmDelete = { open: false, ids: [] };
 		const res = await fetch('/api/files/delete', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
 		if (res.ok) {
+			const result = await res.json();
+			const deletedIds: string[] = result.ids || ids;
+			const count = result.deleted || ids.length;
 			selected = new Set();
 			await invalidateAll();
-			(window as any).__lc_toast?.(t('files.itemsDeleted', { count: String(count) }), 'info');
+			(window as any).__lc_toast?.(t('trash.movedToTrash', { count: String(count) }), 'info', {
+				label: t('trash.undo'),
+				callback: async () => {
+					await fetch('/api/files/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore', ids: deletedIds }) });
+					await invalidateAll();
+				}
+			});
 		}
 	}
 
@@ -335,20 +403,25 @@
 			{/each}
 		</div>
 		<div class="flex items-center gap-1">
-			<Tooltip text="List view">
+			<Tooltip text={t('files.listView')}>
 				<button onclick={() => setViewMode('list')} class="m3-icon-btn" aria-label="List view">
 					<span class="material-symbols-outlined" style={viewMode === 'list' ? "font-variation-settings: 'FILL' 1;" : ''}>view_list</span>
 				</button>
 			</Tooltip>
-			<Tooltip text="Grid view">
+			<Tooltip text={t('files.gridView')}>
 				<button onclick={() => setViewMode('grid')} class="m3-icon-btn" aria-label="Grid view">
 					<span class="material-symbols-outlined" style={viewMode === 'grid' ? "font-variation-settings: 'FILL' 1;" : ''}>grid_view</span>
 				</button>
 			</Tooltip>
 			<div class="w-px h-6 bg-outline-variant/30 mx-1"></div>
 			{#if selected.size > 0}
-				<Tooltip text="Move {selected.size} selected">
-					<button onclick={() => openMoveDialog([...selected])} class="m3-icon-btn" aria-label="Move selected">
+				<Tooltip text={t('tags.assignTags')}>
+					<button onclick={(e) => openTagPicker([...selected], e.clientX, e.clientY)} class="m3-icon-btn" aria-label={t('tags.assignTags')}>
+						<span class="material-symbols-outlined">label</span>
+					</button>
+				</Tooltip>
+				<Tooltip text={t('files.moveSelected', { count: String(selected.size) })}>
+					<button onclick={() => openMoveDialog([...selected])} class="m3-icon-btn" aria-label={t('files.moveTo')}>
 						<span class="material-symbols-outlined">drive_file_move</span>
 					</button>
 				</Tooltip>
@@ -359,17 +432,40 @@
 				</Tooltip>
 			{/if}
 			<Tooltip text={t('files.newFolder')}>
-				<button onclick={openNewFolder} class="m3-icon-btn" aria-label="New folder">
+				<button onclick={openNewFolder} class="m3-icon-btn" aria-label={t('files.newFolder')}>
 					<span class="material-symbols-outlined">create_new_folder</span>
 				</button>
 			</Tooltip>
 			<Tooltip text={t('files.uploadBtn')}>
-				<button onclick={() => { fileInput?.click(); }} class="m3-icon-btn" aria-label="Upload files">
+				<button onclick={() => { fileInput?.click(); }} class="m3-icon-btn" aria-label={t('files.uploadBtn')}>
 					<span class="material-symbols-outlined">upload_file</span>
 				</button>
 			</Tooltip>
 		</div>
 	</div>
+
+	<!-- Filter chips -->
+	{#if userTags.length > 0}
+		<div class="flex items-center gap-2 overflow-x-auto pb-2 mb-2" style="scrollbar-width: none;">
+			<button
+				onclick={() => toggleFilter('starred')}
+				class="m3-chip !h-7 flex-shrink-0 text-xs {activeFilters.has('starred') ? '!bg-secondary-container !border-primary' : ''}"
+			>
+				<span class="material-symbols-outlined text-[14px] text-amber-500" style="font-variation-settings: 'FILL' 1;">star</span>
+				{t('tags.favorites')}
+			</button>
+			{#each userTags as tag (tag.id)}
+				<button
+					onclick={() => toggleFilter(`tag:${tag.id}`)}
+					class="m3-chip !h-7 flex-shrink-0 text-xs {activeFilters.has(`tag:${tag.id}`) ? '!bg-secondary-container !border-primary' : ''}"
+				>
+					<span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {tag.color}"></span>
+					{tag.name}
+					{#if tag.fileCount > 0}<span class="text-on-surface-variant text-[10px]">{tag.fileCount}</span>{/if}
+				</button>
+			{/each}
+		</div>
+	{/if}
 
 	<input bind:this={fileInput} type="file" multiple style="position:fixed;top:-100px;left:-100px;opacity:0;" onchange={(e: Event) => { const input = e.target as HTMLInputElement; uploadFiles(input.files); input.value = ''; }} />
 
@@ -409,7 +505,7 @@
 
 	<!-- Selection bar -->
 	{#if selected.size > 0}
-		<div class="flex items-center gap-3 px-4 py-2 mb-2 bg-secondary-container/30 rounded-xl" style="animation: m3-fade-in 150ms var(--m3-ease);">
+		<div class="flex items-center gap-3 px-4 py-2 mb-2 bg-secondary-container/30 rounded-xl" style="animation: m3-fade-in var(--m3-duration-short3) var(--m3-ease-standard-decel);">
 			<span class="m3-label-large text-on-secondary-container">{selected.size} selected</span>
 			<div class="flex-1"></div>
 			<button onclick={() => selected = new Set()} class="m3-btn m3-btn-text !h-8 !min-w-0 !px-3 m3-label-medium">Clear</button>
@@ -422,6 +518,7 @@
 			<colgroup>
 				<col class="w-12" />
 				<col />
+				<col class="w-10" />
 				<col class="w-32 hidden lg:table-column" />
 				<col class="w-20" />
 				<col class="w-40" />
@@ -435,19 +532,20 @@
 					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('name')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
 							{t('files.name')}
-							{#if sortKey === 'name'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+							{#if sortKey === 'name'}<span class="material-symbols-outlined text-[16px] text-primary m3-icon-sort {sortDir === 'desc' ? 'desc' : ''}">arrow_upward</span>{/if}
 						</span>
 					</th>
+					<th class="py-2.5"></th>
 					<th class="py-2.5 hidden lg:table-cell cursor-pointer select-none" onclick={() => cycleSortDir('updatedAt')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
 							{t('files.modified')}
-							{#if sortKey === 'updatedAt'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+							{#if sortKey === 'updatedAt'}<span class="material-symbols-outlined text-[16px] text-primary m3-icon-sort {sortDir === 'desc' ? 'desc' : ''}">arrow_upward</span>{/if}
 						</span>
 					</th>
 					<th class="py-2.5 cursor-pointer select-none" onclick={() => cycleSortDir('size')}>
 						<span class="m3-label-medium text-on-surface-variant inline-flex items-center gap-1 hover:text-on-surface transition-colors">
 							{t('files.size')}
-							{#if sortKey === 'size'}<span class="material-symbols-outlined text-[16px] text-primary">{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>{/if}
+							{#if sortKey === 'size'}<span class="material-symbols-outlined text-[16px] text-primary m3-icon-sort {sortDir === 'desc' ? 'desc' : ''}">arrow_upward</span>{/if}
 						</span>
 					</th>
 					<th class="py-2.5"></th>
@@ -467,7 +565,7 @@
 						ondragover={file.isFolder ? (e) => onFolderDragOver(e, file.id) : undefined}
 						ondragleave={file.isFolder ? () => onFolderDragLeave() : undefined}
 						ondrop={file.isFolder ? (e) => onFolderDrop(e, file) : undefined}
-						style="animation: m3-stagger-in 250ms cubic-bezier(0.05,0.7,0.1,1) {Math.min(idx * 25, 150)}ms both;"
+						style="animation: m3-stagger-in var(--m3-duration-medium2) var(--m3-ease-emphasized-decel) {Math.min(idx * 25, 150)}ms both;"
 					>
 						<td class="py-3 pl-4 rounded-l-xl">
 							<input type="checkbox" checked={selected.has(file.id)} onchange={() => toggleSelect(file.id)}
@@ -490,7 +588,26 @@
 										<span class="material-symbols-outlined text-[22px]" style="color: {icon.color}; {file.isFolder ? "font-variation-settings: 'FILL' 1;" : ''}">{icon.icon}</span>
 									</div>
 									<div class="min-w-0 overflow-hidden">
-										<span class="m3-body-medium font-medium text-on-surface block truncate">{file.name}</span>
+										<div class="flex items-center gap-1.5">
+											<span class="m3-body-medium font-medium text-on-surface truncate">{file.name}</span>
+											{#if file.scanStatus === 'infected'}
+												<span class="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full bg-error/10 text-error text-[10px] font-medium flex-shrink-0">
+													<span class="material-symbols-outlined text-[12px]">gpp_bad</span>
+												</span>
+											{:else if file.scanStatus === 'pending' && !file.isFolder}
+												<span class="material-symbols-outlined text-[12px] text-on-surface-variant/50 animate-spin flex-shrink-0">progress_activity</span>
+											{/if}
+											{#if (file as any).tags?.length > 0}
+												<div class="flex items-center gap-0.5 flex-shrink-0">
+													{#each (file as any).tags.slice(0, 3) as tag}
+														<span class="w-2 h-2 rounded-full" style="background: {tag.color};" title={tag.name}></span>
+													{/each}
+													{#if (file as any).tags.length > 3}
+														<span class="text-[9px] text-on-surface-variant">+{(file as any).tags.length - 3}</span>
+													{/if}
+												</div>
+											{/if}
+										</div>
 										<span class="m3-label-small text-on-surface-variant">
 											{#if file.isFolder}{t('files.folder')}{:else}{file.mimeType?.split('/').pop()?.toUpperCase() || 'File'}{#if file.encrypted}&nbsp;&middot;&nbsp;<span class="inline-flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">lock</span></span>{/if}{/if}
 										</span>
@@ -498,13 +615,23 @@
 								</button>
 							{/if}
 						</td>
+						<td class="py-3 w-8" onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()}>
+							<button
+								onclick={() => toggleStar(file.id, !file.starred)}
+								class="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer transition-colors
+									{file.starred ? 'text-amber-500 hover:text-amber-600' : 'text-on-surface-variant/30 hover:text-amber-400 opacity-0 group-hover:opacity-100'}"
+								aria-label={t('files.star')}
+							>
+								<span class="material-symbols-outlined text-[20px] m3-icon-star {file.starred ? 'active' : ''}" style={file.starred ? "font-variation-settings: 'FILL' 1;" : ''}>star</span>
+							</button>
+						</td>
 						<td class="py-3 hidden lg:table-cell"><span class="m3-body-small text-on-surface-variant">{formatDate(file.updatedAt)}</span></td>
 						<td class="py-3"><span class="m3-body-small text-on-surface-variant">{file.size > 0 ? formatFileSize(file.size) : '—'}</span></td>
 						<td class="py-3 pr-4 rounded-r-xl text-right">
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 justify-end" ondblclick={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
 								<Tooltip text={t('files.rename')}>
-									<button onclick={() => startRename(file.id, file.name)} class="m3-icon-btn !w-8 !h-8" aria-label="Rename">
+									<button onclick={() => startRename(file.id, file.name)} class="m3-icon-btn !w-8 !h-8" aria-label={t('files.rename')}>
 										<span class="material-symbols-outlined text-lg">edit</span>
 									</button>
 								</Tooltip>
@@ -514,20 +641,20 @@
 									</button>
 								</Tooltip>
 								<Tooltip text={t('files.share')}>
-									<button onclick={() => openShare(file.id, file.name, file.isFolder ?? false)} class="m3-icon-btn !w-8 !h-8" aria-label="Share">
+									<button onclick={() => openShare(file.id, file.name, file.isFolder ?? false)} class="m3-icon-btn !w-8 !h-8" aria-label={t('files.share')}>
 										<span class="material-symbols-outlined text-lg">share</span>
 									</button>
 								</Tooltip>
 								{#if !file.isFolder}
 									<Tooltip text={t('files.download')}>
-										<button onclick={() => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null)} class="m3-icon-btn !w-8 !h-8" aria-label="Download">
-											<span class="material-symbols-outlined text-lg">download</span>
+										<button onclick={() => downloadFile(file.id, file.name, file.encrypted ?? false, file.iv ?? null)} class="m3-icon-btn !w-8 !h-8" aria-label={t('files.download')}>
+											<span class="material-symbols-outlined text-lg m3-icon-download">download</span>
 										</button>
 									</Tooltip>
 								{/if}
 								<Tooltip text={t('files.delete')}>
-									<button onclick={() => deleteFiles([file.id])} class="m3-icon-btn !w-8 !h-8 !text-error" aria-label="Delete">
-										<span class="material-symbols-outlined text-lg">delete</span>
+									<button onclick={() => deleteFiles([file.id])} class="m3-icon-btn !w-8 !h-8 !text-error" aria-label={t('files.delete')}>
+										<span class="material-symbols-outlined text-lg m3-icon-shake">delete</span>
 									</button>
 								</Tooltip>
 							</div>
@@ -554,7 +681,7 @@
 					ondragover={file.isFolder ? (e) => onFolderDragOver(e, file.id) : undefined}
 					ondragleave={file.isFolder ? () => onFolderDragLeave() : undefined}
 					ondrop={file.isFolder ? (e) => onFolderDrop(e, file) : undefined}
-					style="animation: m3-stagger-in 250ms cubic-bezier(0.05,0.7,0.1,1) {Math.min(idx * 30, 200)}ms both;"
+					style="animation: m3-stagger-in var(--m3-duration-medium2) var(--m3-ease-emphasized-decel) {Math.min(idx * 30, 200)}ms both;"
 				>
 					<div class="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity {selected.has(file.id) ? '!opacity-100' : ''}">
 						<input type="checkbox" checked={selected.has(file.id)} onchange={() => toggleSelect(file.id)}
@@ -578,14 +705,25 @@
 	{/if}
 </div>
 
+<TagPicker
+	open={tagPicker.open}
+	x={tagPicker.x}
+	y={tagPicker.y}
+	fileIds={tagPicker.fileIds}
+	fileTags={allFileTags}
+	{userTags}
+	onassign={assignTag}
+	onremove={removeTag}
+	onclose={() => tagPicker = { ...tagPicker, open: false }}
+/>
 <UploadProgress {uploads} />
 <ShareDialog fileId={shareFileId} fileName={shareFileName} isFolder={shareIsFolder} open={shareOpen} onclose={() => shareOpen = false} />
 <FilePreview open={previewOpen} fileId={previewFile.id} fileName={previewFile.name} fileSize={previewFile.size} mimeType={previewFile.mimeType} encrypted={previewFile.encrypted} iv={previewFile.iv} onclose={() => previewOpen = false} />
 <ConfirmDialog
 	open={confirmDelete.open}
-	title="Delete {confirmDelete.ids.length === 1 ? 'item' : `${confirmDelete.ids.length} items`}"
-	message="This action cannot be undone. The {confirmDelete.ids.length === 1 ? 'file' : 'files'} will be permanently removed."
-	confirmLabel="Delete"
+	title={t('trash.moveToTrash')}
+	message={t('trash.autoDelete')}
+	confirmLabel={t('trash.moveToTrash')}
 	danger={true}
 	onconfirm={executeDelete}
 	oncancel={() => confirmDelete = { open: false, ids: [] }}
@@ -640,34 +778,34 @@
 		<div class="m3-dialog max-w-md">
 			<div class="px-6 pt-6 pb-3 flex items-center justify-between">
 				<h3 class="m3-title-medium text-on-surface">{t('files.shortcuts')}</h3>
-				<button onclick={() => showShortcuts = false} class="m3-icon-btn !w-8 !h-8" aria-label="Close">
+				<button onclick={() => showShortcuts = false} class="m3-icon-btn !w-8 !h-8" aria-label={t('share.close')}>
 					<span class="material-symbols-outlined text-lg">close</span>
 				</button>
 			</div>
 			<div class="px-6 pb-6 space-y-4">
 				<div>
-					<p class="m3-label-medium text-on-surface-variant mb-2">Selection</p>
+					<p class="m3-label-medium text-on-surface-variant mb-2">{t('files.shortcutSelection')}</p>
 					<div class="space-y-1.5">
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Select all</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+A</kbd></div>
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Deselect all</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutSelectAll')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+A</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutDeselectAll')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
 					</div>
 				</div>
 				<hr class="m3-divider">
 				<div>
-					<p class="m3-label-medium text-on-surface-variant mb-2">File operations</p>
+					<p class="m3-label-medium text-on-surface-variant mb-2">{t('files.shortcutFileOps')}</p>
 					<div class="space-y-1.5">
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Upload files</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+U</kbd></div>
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Delete selected</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Delete</kbd></div>
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Open / Preview</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Double-click</kbd></div>
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Context menu</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Right-click</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutUpload')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Ctrl+U</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutDelete')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Delete</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutOpen')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Doppelklick</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutContextMenu')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Rechtsklick</kbd></div>
 					</div>
 				</div>
 				<hr class="m3-divider">
 				<div>
-					<p class="m3-label-medium text-on-surface-variant mb-2">Navigation</p>
+					<p class="m3-label-medium text-on-surface-variant mb-2">{t('files.shortcutNav')}</p>
 					<div class="space-y-1.5">
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Show shortcuts</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">?</kbd></div>
-						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">Close dialog</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutShowShortcuts')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">?</kbd></div>
+						<div class="flex justify-between"><span class="m3-body-medium text-on-surface">{t('files.shortcutCloseDialog')}</span><kbd class="m3-label-medium bg-surface-container-high px-2 py-0.5 rounded-md">Esc</kbd></div>
 					</div>
 				</div>
 			</div>
