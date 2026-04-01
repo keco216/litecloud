@@ -15,7 +15,7 @@
 
 	async function setupEncryption(password: string) {
 		const keys = await generateEncryptionKeys(password);
-		await fetch('/api/auth/encryption', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(keys) });
+		await fetch('/api/auth/encryption', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ encryptionSalt: keys.salt, encryptedMasterKey: keys.encryptedMasterKey, masterKeyIv: keys.masterKeyIv }) });
 		const mk = await unlockMasterKey(password, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
 		storeMasterKey(mk);
 	}
