@@ -1,9 +1,10 @@
 import { db } from '$lib/server/db';
-import { files, fileTags, tags } from '$lib/server/db/schema';
+import { files, fileTags, tags, users } from '$lib/server/db/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
+	const user = db.select({ encryptionSalt: users.encryptionSalt, encryptedMasterKey: users.encryptedMasterKey, masterKeyIv: users.masterKeyIv }).from(users).where(eq(users.id, locals.user!.id)).get();
 	const segments = (params.path || '').split('/').filter(s => s && s !== '.' && s !== '..');
 	const currentPath = '/' + segments.join('/');
 
@@ -53,5 +54,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		return { ...f, size: folderSize, tags: fileTags };
 	});
 
-	return { files: enriched, currentPath };
+	return {
+		files: enriched,
+		currentPath,
+		hasEncryption: !!user?.encryptionSalt,
+		encryptionSalt: user?.encryptionSalt || '',
+		encryptedMasterKey: user?.encryptedMasterKey || '',
+		masterKeyIv: user?.masterKeyIv || ''
+	};
 };

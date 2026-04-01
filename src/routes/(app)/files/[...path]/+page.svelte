@@ -9,12 +9,49 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import TagPicker from '$lib/components/TagPicker.svelte';
-	import { loadMasterKey, encryptFile, decryptFile } from '$lib/crypto';
+	import { loadMasterKey, encryptFile, decryptFile, unlockMasterKey, storeMasterKey } from '$lib/crypto';
 	import { browser } from '$app/environment';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Encryption unlock
+	let showUnlockPrompt = $state(false);
+	let unlockPassword = $state('');
+	let unlockError = $state('');
+	let unlockLoading = $state(false);
+	let pendingUploadFiles = $state<FileList | null>(null);
+
+	// Check if encryption is active but key is missing from sessionStorage
+	$effect(() => {
+		if (browser && data.hasEncryption) {
+			const hasKey = !!sessionStorage.getItem('lc-mk');
+			if (!hasKey) showUnlockPrompt = true;
+		}
+	});
+
+	async function doEncryptionUnlock() {
+		if (!unlockPassword) return;
+		unlockLoading = true;
+		unlockError = '';
+		try {
+			const k = await unlockMasterKey(unlockPassword, data.encryptionSalt, data.encryptedMasterKey, data.masterKeyIv);
+			await storeMasterKey(k);
+			showUnlockPrompt = false;
+			unlockPassword = '';
+			// If there were pending uploads, process them now
+			if (pendingUploadFiles) {
+				const files = pendingUploadFiles;
+				pendingUploadFiles = null;
+				uploadFiles(files);
+			}
+		} catch {
+			unlockError = t('settings.encryptionSetupError');
+		} finally {
+			unlockLoading = false;
+		}
+	}
 
 	// State
 	let shareFileId = $state(''); let shareFileName = $state(''); let shareIsFolder = $state(false); let shareOpen = $state(false);
@@ -172,7 +209,13 @@
 	async function uploadFiles(fileList: FileList | null) {
 		if (!fileList?.length) return;
 		let masterKey: CryptoKey | null = null;
-		try { masterKey = await loadMasterKey(); } catch { /* no encryption */ }
+		try { masterKey = await loadMasterKey(); } catch {}
+		// If encryption is active but key is missing, prompt for password first
+		if (data.hasEncryption && !masterKey) {
+			pendingUploadFiles = fileList;
+			showUnlockPrompt = true;
+			return;
+		}
 		for (const file of fileList) {
 			const item: UploadItem = { name: file.name, size: file.size, progress: 0, done: false };
 			uploads = [...uploads, item];
@@ -719,6 +762,28 @@
 <UploadProgress {uploads} />
 <ShareDialog fileId={shareFileId} fileName={shareFileName} isFolder={shareIsFolder} open={shareOpen} onclose={() => shareOpen = false} />
 <FilePreview open={previewOpen} fileId={previewFile.id} fileName={previewFile.name} fileSize={previewFile.size} mimeType={previewFile.mimeType} encrypted={previewFile.encrypted} iv={previewFile.iv} onclose={() => previewOpen = false} />
+<!-- Encryption Unlock Prompt -->
+{#if showUnlockPrompt}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/40" role="dialog">
+	<div class="bg-surface-container-lowest rounded-3xl border border-outline-variant/30 p-8 w-full max-w-sm shadow-xl">
+		<div class="flex items-center gap-3 mb-4">
+			<span class="material-symbols-outlined text-primary text-2xl">lock</span>
+			<h3 class="m3-title-medium text-on-surface">{t('settings.encryption')}</h3>
+		</div>
+		<p class="m3-body-small text-on-surface-variant mb-4">{t('settings.encryptionSetupDesc')}</p>
+		<input type="password" bind:value={unlockPassword} placeholder={t('auth.passwordPlaceholder')}
+			class="m3-input mb-3" onkeydown={(e) => { if (e.key === 'Enter') doEncryptionUnlock(); }} />
+		{#if unlockError}<div class="text-sm text-error bg-error-container/30 rounded-xl px-4 py-3 mb-3">{unlockError}</div>{/if}
+		<div class="flex gap-2">
+			<button onclick={doEncryptionUnlock} disabled={!unlockPassword || unlockLoading} class="m3-btn m3-btn-filled flex-1">
+				{unlockLoading ? '...' : t('auth.signIn')}
+			</button>
+			<button onclick={() => { showUnlockPrompt = false; pendingUploadFiles = null; }} class="m3-btn m3-btn-text">{t('settings.cancel')}</button>
+		</div>
+	</div>
+</div>
+{/if}
+
 <ConfirmDialog
 	open={confirmDelete.open}
 	title={t('trash.moveToTrash')}
