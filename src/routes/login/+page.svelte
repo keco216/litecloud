@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import { unlockMasterKey, storeMasterKey, generateEncryptionKeys } from '$lib/crypto';
 	import { t } from '$lib/i18n/index.svelte';
 	import AnimatedIcon from '$lib/components/AnimatedIcon.svelte';
@@ -8,7 +10,6 @@
 
 	let unlocking = $state(false);
 	let showPassword = $state(false);
-	let lastPassword = $state(''); // retained client-side only, never sent back by server
 	let countdown = $state(0);
 	let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -22,54 +23,11 @@
 			}, 1000);
 		}
 	});
-
-	$effect(() => {
-		if (form && !form.error && !unlocking) {
-			const f = form as any;
-			if (f.needsTotp) {
-				sessionStorage.setItem('lc-pending-email', f.email);
-				sessionStorage.setItem('lc-pending-pw', lastPassword);
-				window.location.href = '/login/totp';
-				return;
-			}
-			if (f.unlockEncryption) {
-				unlocking = true;
-				const pw = lastPassword;
-				const salt = f.encryptionSalt || '';
-				const emk = f.encryptedMasterKey || '';
-				const mkiv = f.masterKeyIv || '';
-				// Must use IIFE — $effect cannot be async
-				(async () => {
-					if (salt && emk && mkiv) {
-						try {
-							const k = await unlockMasterKey(pw, salt, emk, mkiv);
-							await storeMasterKey(k);
-						} catch (e) {
-							console.error('[login] Encryption unlock failed:', e);
-						}
-					} else {
-						try {
-							const keys = await generateEncryptionKeys(pw);
-							const r = await fetch('/api/auth/encryption', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ encryptionSalt: keys.salt, encryptedMasterKey: keys.encryptedMasterKey, masterKeyIv: keys.masterKeyIv }) });
-							if (r.ok) {
-								const mk = await unlockMasterKey(pw, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
-								await storeMasterKey(mk);
-							}
-						} catch (e) {
-							console.error('[login] Encryption setup failed:', e);
-						}
-					}
-					window.location.href = '/files';
-				})();
-			}
-		}
-	});
 </script>
 
 <svelte:head><title>{t('auth.signIn')} — {t('app.name')}</title></svelte:head>
 
 <div class="bg-surface-container-low min-h-screen flex flex-col">
-	<!-- Top bar -->
 	<header class="fixed top-0 w-full bg-surface-container-low flex justify-between items-center px-6 py-4 z-50">
 		<div class="flex items-center gap-2 m3-title-medium font-bold text-on-surface tracking-tight">
 			<span class="material-symbols-outlined text-primary">cloud</span>
@@ -77,10 +35,8 @@
 		</div>
 	</header>
 
-	<!-- Main -->
 	<main class="flex-grow flex items-center justify-center px-4 pt-20 pb-32">
 		<div class="w-full max-w-[420px] bg-surface-container-lowest rounded-3xl border border-outline-variant/30 p-10">
-			<!-- Header -->
 			<div class="flex flex-col items-center mb-8">
 				<div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-5">
 					<span class="material-symbols-outlined text-[32px] text-primary">cloud</span>
@@ -95,7 +51,71 @@
 					<p class="m3-body-medium text-on-surface-variant">{t('auth.unlocking')}</p>
 				</div>
 			{:else}
-				<form method="POST" class="space-y-5">
+				<form method="POST" class="space-y-5" use:enhance={({ formData }) => {
+					// Capture password from FormData BEFORE submission
+					const password = formData.get('password')?.toString() ?? '';
+
+					// Return the response handler — suppresses default SvelteKit behavior
+					return async ({ result, update }) => {
+						if (result.type === 'failure') {
+							// Server returned fail() — update form prop for error display
+							await update({ reset: false });
+							return;
+						}
+
+						if (result.type !== 'success' || !result.data) {
+							await update({ reset: false });
+							return;
+						}
+
+						const data = result.data as any;
+
+						// Handle TOTP redirect
+						if (data.needsTotp) {
+							sessionStorage.setItem('lc-pending-email', data.email);
+							sessionStorage.setItem('lc-pending-pw', password);
+							window.location.href = '/login/totp';
+							return;
+						}
+
+						// Handle encryption unlock
+						if (data.unlockEncryption) {
+							unlocking = true;
+							const salt = data.encryptionSalt || '';
+							const emk = data.encryptedMasterKey || '';
+							const mkiv = data.masterKeyIv || '';
+
+							if (salt && emk && mkiv) {
+								// Unlock existing keys
+								try {
+									const k = await unlockMasterKey(password, salt, emk, mkiv);
+									await storeMasterKey(k);
+								} catch (e) {
+									console.error('[login] Encryption unlock failed:', e);
+								}
+							} else {
+								// No keys yet — generate new ones
+								try {
+									const keys = await generateEncryptionKeys(password);
+									const r = await fetch('/api/auth/encryption', {
+										method: 'POST',
+										headers: { 'Content-Type': 'application/json' },
+										body: JSON.stringify({ encryptionSalt: keys.salt, encryptedMasterKey: keys.encryptedMasterKey, masterKeyIv: keys.masterKeyIv })
+									});
+									if (r.ok) {
+										const mk = await unlockMasterKey(password, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
+										await storeMasterKey(mk);
+									}
+								} catch (e) {
+									console.error('[login] Encryption setup failed:', e);
+								}
+							}
+
+							// Navigate ONLY after key is stored
+							await goto('/files');
+						}
+					};
+				}}>
 					{#if countdown > 0}
 						<div role="alert" class="m3-body-small text-error bg-error-container/30 rounded-xl px-4 py-3 flex items-center gap-2">
 							<span class="material-symbols-outlined text-[18px]">timer</span>
@@ -122,7 +142,6 @@
 						<div class="relative">
 							<input
 								type={showPassword ? 'text' : 'password'} id="password" name="password" required autocomplete="current-password"
-								oninput={(e: Event) => { lastPassword = (e.target as HTMLInputElement).value; }}
 								placeholder={t('auth.passwordPlaceholder')}
 								class="m3-input !rounded-lg !pr-12"
 							/>
