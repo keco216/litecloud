@@ -344,7 +344,7 @@
 					<button
 						onclick={async () => {
 							await fetch('/api/auth/logout', { method: 'POST' });
-							try { sessionStorage.removeItem('lc-mk'); } catch {}
+							try { localStorage.removeItem('lc-mk'); } catch {}
 							window.location.href = '/login';
 						}}
 						class="m3-icon-btn"

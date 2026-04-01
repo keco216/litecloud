@@ -26,7 +26,7 @@
 	// Check if encryption is active but key is missing from sessionStorage
 	$effect(() => {
 		if (browser && data.hasEncryption) {
-			const hasKey = !!sessionStorage.getItem('lc-mk');
+			const hasKey = !!localStorage.getItem('lc-mk');
 			if (!hasKey) showUnlockPrompt = true;
 		}
 	});

@@ -98,13 +98,14 @@ export async function unlockMasterKey(
 // ── Session Key Storage ──
 
 export async function storeMasterKey(key: CryptoKey): Promise<void> {
-	// Export and store in sessionStorage (tab-scoped, cleared on close)
+	// Store in localStorage so the key persists across browser sessions.
+	// Cleared on logout via clearMasterKey(). Same approach as Proton Mail.
 	const raw = await crypto.subtle.exportKey('raw', key);
-	sessionStorage.setItem('lc-mk', toBase64(raw));
+	localStorage.setItem('lc-mk', toBase64(raw));
 }
 
 export async function loadMasterKey(): Promise<CryptoKey | null> {
-	const b64 = sessionStorage.getItem('lc-mk');
+	const b64 = localStorage.getItem('lc-mk');
 	if (!b64) return null;
 	const raw = fromBase64(b64);
 	return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, [
@@ -114,7 +115,7 @@ export async function loadMasterKey(): Promise<CryptoKey | null> {
 }
 
 export function clearMasterKey(): void {
-	sessionStorage.removeItem('lc-mk');
+	localStorage.removeItem('lc-mk');
 }
 
 // ── File Encryption ──

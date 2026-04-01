@@ -14,6 +14,7 @@ const mockSessionStorage = {
   clear: () => store.clear()
 };
 Object.defineProperty(globalThis, 'sessionStorage', { value: mockSessionStorage, writable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: mockSessionStorage, writable: true });
 
 import {
   generateEncryptionKeys,
