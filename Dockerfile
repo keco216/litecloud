@@ -20,8 +20,8 @@ ENV DB_PATH=/data/litecloud.db
 ENV BODY_SIZE_LIMIT=Infinity
 ENV ORIGIN=http://localhost:3000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+  CMD wget --spider -q http://localhost:3000/api/health || exit 1
 
 EXPOSE 3000
 CMD ["node", "build"]
