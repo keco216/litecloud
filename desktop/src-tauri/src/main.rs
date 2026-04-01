@@ -7,6 +7,7 @@ mod commands;
 mod context_menu;
 mod db;
 mod notifications;
+mod overlay_status;
 mod sync_engine;
 mod tray;
 mod watcher;
@@ -19,8 +20,22 @@ use tauri::{Emitter, Listener, Manager};
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // Handle CLI actions from context menu (--action share/browser/sync)
     let args: Vec<String> = std::env::args().collect();
+
+    // Emergency: unregister cloud provider to restore folder access
+    if args.iter().any(|a| a == "--unregister-cloud") {
+        let folder = dirs::document_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_default())
+            .join("LiteCloud");
+        let provider = cloud_provider::CloudProvider::new(folder);
+        match provider.unregister() {
+            Ok(()) => println!("Cloud sync root unregistered successfully. Folder is accessible again."),
+            Err(e) => println!("Unregister failed: {}", e),
+        }
+        return;
+    }
+
+    // Handle CLI actions from context menu (--action share/browser/sync)
     if context_menu::handle_cli_action(&args) {
         return;
     }

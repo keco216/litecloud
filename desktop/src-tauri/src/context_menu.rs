@@ -15,7 +15,10 @@ pub fn register(exe_path: &str) -> Result<(), String> {
         r"Software\Classes\Directory\shell\LiteCloud",
     ] {
         let (key, _) = hkcu.create_subkey(root).map_err(|e| e.to_string())?;
-        key.set_value("", &"LiteCloud").map_err(|e| e.to_string())?;
+        // IMPORTANT: Do NOT set (Default) — must remain unset for cascading menus.
+        // Only MUIVerb is used for the display name.
+        key.delete_value("").ok(); // Remove (Default) if it exists
+        key.set_value("MUIVerb", &"LiteCloud").map_err(|e| e.to_string())?;
         key.set_value("Icon", &exe_path).map_err(|e| e.to_string())?;
         key.set_value("Position", &"Bottom").map_err(|e| e.to_string())?;
         key.set_value("SubCommands", &"").map_err(|e| e.to_string())?;
@@ -25,6 +28,7 @@ pub fn register(exe_path: &str) -> Result<(), String> {
             let sub = format!(r"{}\shell\01share", root);
             let (k, _) = hkcu.create_subkey(&sub).map_err(|e| e.to_string())?;
             k.set_value("", &"Share-Link erstellen").map_err(|e| e.to_string())?;
+            k.set_value("MUIVerb", &"Share-Link erstellen").map_err(|e| e.to_string())?;
             let (cmd, _) = hkcu
                 .create_subkey(&format!(r"{}\command", sub))
                 .map_err(|e| e.to_string())?;
@@ -37,6 +41,7 @@ pub fn register(exe_path: &str) -> Result<(), String> {
             let sub = format!(r"{}\shell\02browser", root);
             let (k, _) = hkcu.create_subkey(&sub).map_err(|e| e.to_string())?;
             k.set_value("", &"Im Browser öffnen").map_err(|e| e.to_string())?;
+            k.set_value("MUIVerb", &"Im Browser öffnen").map_err(|e| e.to_string())?;
             let (cmd, _) = hkcu
                 .create_subkey(&format!(r"{}\command", sub))
                 .map_err(|e| e.to_string())?;
@@ -49,6 +54,7 @@ pub fn register(exe_path: &str) -> Result<(), String> {
             let sub = format!(r"{}\shell\03sync", root);
             let (k, _) = hkcu.create_subkey(&sub).map_err(|e| e.to_string())?;
             k.set_value("", &"Jetzt synchronisieren").map_err(|e| e.to_string())?;
+            k.set_value("MUIVerb", &"Jetzt synchronisieren").map_err(|e| e.to_string())?;
             let (cmd, _) = hkcu
                 .create_subkey(&format!(r"{}\command", sub))
                 .map_err(|e| e.to_string())?;

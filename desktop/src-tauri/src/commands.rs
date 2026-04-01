@@ -118,6 +118,11 @@ pub async fn start_sync(
             }
         };
 
+        // NOTE: Cloud Files API (CfApi) is NOT used for overlay icons.
+        // CfApi blocks folder access when the app isn't running, which is
+        // unacceptable for a sync client. Explorer overlay icons will be
+        // implemented via Shell Extension (IShellIconOverlayIdentifier) instead.
+
         // Start file watcher
         let (watcher_tx, watcher_rx) = mpsc::channel::<FileChangeEvent>();
         let _watcher = match FileWatcher::start(sync_folder.clone(), watcher_tx) {
@@ -142,6 +147,9 @@ pub async fn start_sync(
                     report.downloaded,
                     report.errors.len()
                 );
+                // Write overlay status for Shell Extension
+                crate::overlay_status::write_sync_folder(&sync_folder);
+                crate::overlay_status::mark_all_synced(&sync_folder);
             }
             Err(e) => {
                 log::error!("[sync] Initial sync failed: {}", e);
@@ -151,34 +159,21 @@ pub async fn start_sync(
 
         // Sync loop: check every 30s or when watcher triggers
         loop {
-            // Wait for watcher event or 30s timeout
             match watcher_rx.recv_timeout(std::time::Duration::from_secs(30)) {
                 Ok(FileChangeEvent::Changed(paths)) => {
-                    log::debug!(
-                        "[sync] File change detected: {} paths",
-                        paths.len()
-                    );
+                    log::debug!("[sync] File change detected: {} paths", paths.len());
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Periodic sync
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     log::info!("[sync] Watcher disconnected, stopping sync loop");
                     break;
                 }
             }
 
-            // Skip if paused
-            if paused.load(Ordering::Relaxed) {
+            if paused.load(Ordering::Relaxed) || syncing.load(Ordering::Relaxed) {
                 continue;
             }
 
-            // Skip if already syncing
-            if syncing.load(Ordering::Relaxed) {
-                continue;
-            }
-
-            // Run incremental sync
             syncing.store(true, Ordering::Relaxed);
             match rt.block_on(engine.incremental_sync(&db)) {
                 Ok(report) => {
@@ -188,12 +183,11 @@ pub async fn start_sync(
                         || report.deleted_remote > 0
                     {
                         log::info!(
-                            "[sync] Incremental sync: {} up, {} down, {} del_l, {} del_r",
-                            report.uploaded,
-                            report.downloaded,
-                            report.deleted_local,
-                            report.deleted_remote
+                            "[sync] Incremental: {} up, {} down, {} del_l, {} del_r",
+                            report.uploaded, report.downloaded,
+                            report.deleted_local, report.deleted_remote
                         );
+                        crate::overlay_status::mark_all_synced(&sync_folder);
                     }
                 }
                 Err(e) => {
@@ -308,4 +302,30 @@ pub async fn open_sync_folder(state: State<'_, AppState>) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+/// Recursively mark all files in the sync folder as in-sync (green checkmark overlay).
+fn mark_all_in_sync(sync_folder: &std::path::Path, cloud: &crate::cloud_provider::CloudProvider) {
+    fn walk(dir: &std::path::Path, cloud: &crate::cloud_provider::CloudProvider) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().unwrap_or_default().to_str().unwrap_or("");
+            if name.starts_with('.') || name == "Thumbs.db" || name == "desktop.ini" {
+                continue;
+            }
+            cloud.mark_in_sync(&path).ok();
+            if path.is_dir() {
+                walk(&path, cloud);
+            }
+        }
+    }
+
+    log::info!("[cloud] Marking all files as in-sync...");
+    cloud.mark_in_sync(sync_folder).ok();
+    walk(sync_folder, cloud);
+    log::info!("[cloud] Overlay icons updated");
 }
