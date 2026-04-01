@@ -97,11 +97,10 @@ export async function unlockMasterKey(
 
 // ── Session Key Storage ──
 
-export function storeMasterKey(key: CryptoKey): void {
+export async function storeMasterKey(key: CryptoKey): Promise<void> {
 	// Export and store in sessionStorage (tab-scoped, cleared on close)
-	crypto.subtle.exportKey('raw', key).then((raw) => {
-		sessionStorage.setItem('lc-mk', toBase64(raw));
-	});
+	const raw = await crypto.subtle.exportKey('raw', key);
+	sessionStorage.setItem('lc-mk', toBase64(raw));
 }
 
 export async function loadMasterKey(): Promise<CryptoKey | null> {

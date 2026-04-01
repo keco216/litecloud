@@ -15,7 +15,7 @@
 			if (pw) {
 				try {
 					const r = await fetch(`/api/auth/encryption?email=${encodeURIComponent(email)}`);
-					if (r.ok) { const enc = await r.json(); if (enc.encryptionSalt) { const k = await unlockMasterKey(pw, enc.encryptionSalt, enc.encryptedMasterKey, enc.masterKeyIv); storeMasterKey(k); } }
+					if (r.ok) { const enc = await r.json(); if (enc.encryptionSalt) { const k = await unlockMasterKey(pw, enc.encryptionSalt, enc.encryptedMasterKey, enc.masterKeyIv); await storeMasterKey(k); } }
 				} catch {}
 			}
 			window.location.href = '/files';

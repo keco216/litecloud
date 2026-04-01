@@ -31,7 +31,7 @@
 			});
 			if (!r.ok) throw new Error('Server error');
 			const mk = await unlockMasterKey(encryptionPassword, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
-			storeMasterKey(mk);
+			await storeMasterKey(mk);
 			hasEncryption = true;
 			showEncryptionSetup = false;
 			encryptionPassword = '';
