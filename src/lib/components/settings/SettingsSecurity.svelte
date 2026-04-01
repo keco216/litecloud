@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { generateEncryptionKeys, unlockMasterKey, storeMasterKey } from '$lib/crypto';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { PageData } from '../../../routes/(app)/settings/$types';
 
@@ -8,6 +9,38 @@
 
 	let totpEnabled = $state(false);
 	$effect(() => { totpEnabled = data.totpEnabled; });
+
+	// E2E Encryption setup
+	let hasEncryption = $state(false);
+	$effect(() => { hasEncryption = data.hasEncryption; });
+	let showEncryptionSetup = $state(false);
+	let encryptionPassword = $state('');
+	let encryptionLoading = $state(false);
+	let encryptionError = $state('');
+
+	async function setupEncryption() {
+		if (!encryptionPassword) return;
+		encryptionLoading = true;
+		encryptionError = '';
+		try {
+			const keys = await generateEncryptionKeys(encryptionPassword);
+			const r = await fetch('/api/auth/encryption', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(keys)
+			});
+			if (!r.ok) throw new Error('Server error');
+			const mk = await unlockMasterKey(encryptionPassword, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
+			storeMasterKey(mk);
+			hasEncryption = true;
+			showEncryptionSetup = false;
+			encryptionPassword = '';
+		} catch (err: any) {
+			encryptionError = t('settings.encryptionSetupError');
+		} finally {
+			encryptionLoading = false;
+		}
+	}
 
 	// Antivirus
 	let avStatus = $state({ available: false, version: '' });
@@ -42,7 +75,7 @@
 <div class="grid grid-cols-2 gap-3 mb-8">
 	<div class="bg-surface-container rounded-xl p-4">
 		<p class="m3-label-small text-on-surface-variant">{t('settings.encryption')}</p>
-		<p class="m3-title-small mt-1 {data.hasEncryption ? 'text-primary' : 'text-on-surface-variant'}">{data.hasEncryption ? t('settings.active') : t('settings.inactive')}</p>
+		<p class="m3-title-small mt-1 {hasEncryption ? 'text-primary' : 'text-on-surface-variant'}">{hasEncryption ? t('settings.active') : t('settings.inactive')}</p>
 	</div>
 	<div class="bg-surface-container rounded-xl p-4">
 		<p class="m3-label-small text-on-surface-variant">2FA</p>
@@ -53,13 +86,34 @@
 <!-- E2E Encryption -->
 <section class="mb-8">
 	<h3 class="m3-label-large text-on-surface-variant uppercase tracking-wider mb-3 text-xs">{t('settings.encryption')}</h3>
-	{#if data.hasEncryption}
+	{#if hasEncryption}
 		<p class="text-sm text-on-surface-variant">{t('settings.encryptionActive')}</p>
 		<div class="mt-3 m3-chip !border-primary/30 !text-primary">
 			<span class="material-symbols-outlined !text-[14px]">check_circle</span> {t('settings.active')}
 		</div>
+	{:else if showEncryptionSetup}
+		<div class="space-y-4 max-w-sm">
+			<p class="text-sm text-on-surface-variant">{t('settings.encryptionSetupDesc')}</p>
+			<div>
+				<label for="enc-pw" class="m3-label">{t('auth.password')}</label>
+				<input type="password" id="enc-pw" bind:value={encryptionPassword}
+					placeholder={t('auth.passwordPlaceholder')}
+					class="m3-input"
+					onkeydown={(e) => { if (e.key === 'Enter') setupEncryption(); }} />
+			</div>
+			{#if encryptionError}<div class="text-sm text-error bg-error-container/30 rounded-xl px-4 py-3">{encryptionError}</div>{/if}
+			<div class="flex gap-2">
+				<button onclick={setupEncryption} disabled={!encryptionPassword || encryptionLoading} class="m3-btn m3-btn-filled flex-1">
+					{encryptionLoading ? t('settings.settingUp') : t('settings.enableEncryption')}
+				</button>
+				<button onclick={() => { showEncryptionSetup = false; encryptionPassword = ''; encryptionError = ''; }} class="m3-btn m3-btn-text">{t('settings.cancel')}</button>
+			</div>
+		</div>
 	{:else}
-		<p class="text-sm text-on-surface-variant">{t('settings.encryptionInactive')}</p>
+		<p class="text-sm text-on-surface-variant mb-3">{t('settings.encryptionInactive')}</p>
+		<button onclick={() => showEncryptionSetup = true} class="m3-btn m3-btn-filled">
+			{t('settings.enableEncryption')}
+		</button>
 	{/if}
 </section>
 
