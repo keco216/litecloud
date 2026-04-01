@@ -242,7 +242,14 @@
 						uploads = uploads.map(u => u.name === file.name && !u.done ? { ...u, progress: pct } : u);
 					}
 				};
-				xhr.onload = () => { uploads = uploads.map(u => u.name === file.name ? { ...u, progress: 100, done: true, error: xhr.status >= 400 ? 'Failed' : undefined } : u); invalidateAll(); setTimeout(() => { uploads = uploads.filter(u => !(u.name === file.name && u.done)); }, 3000); };
+				xhr.onload = () => {
+						let uploadError: string | undefined;
+						if (xhr.status >= 400) {
+							try { const body = JSON.parse(xhr.responseText); uploadError = body.message || `Error ${xhr.status}`; } catch { uploadError = `Error ${xhr.status}`; }
+							console.error('[upload] Server error:', xhr.status, xhr.responseText);
+						}
+						uploads = uploads.map(u => u.name === file.name ? { ...u, progress: 100, done: true, error: uploadError } : u); invalidateAll(); setTimeout(() => { uploads = uploads.filter(u => !(u.name === file.name && u.done)); }, 5000);
+					};
 				xhr.onerror = () => { uploads = uploads.map(u => u.name === file.name ? { ...u, done: true, error: 'Network error' } : u); };
 				xhr.send(fd);
 			} catch { uploads = uploads.map(u => u.name === file.name ? { ...u, done: true, error: 'Upload failed' } : u); }
