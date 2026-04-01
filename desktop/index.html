@@ -1,182 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LiteCloud Sync</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f9fafb; color: #111827;
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
-      padding: 2rem; -webkit-user-select: none; user-select: none;
-    }
-    .container { width: 100%; max-width: 400px; }
-    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .subtitle { font-size: 0.8rem; color: #6b7280; margin-bottom: 1.5rem; }
-    .card {
-      background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem;
-      padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .field { margin-bottom: 1rem; }
-    .field label { display: block; font-size: 0.8rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem; }
-    .field input {
-      width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem;
-      padding: 0.5rem 0.75rem; font-size: 0.875rem; outline: none;
-      -webkit-user-select: text; user-select: text;
-    }
-    .field input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
-    .btn {
-      width: 100%; background: #111827; color: white; border: none;
-      border-radius: 0.5rem; padding: 0.625rem; font-size: 0.875rem;
-      font-weight: 500; cursor: pointer; transition: background 0.15s;
-    }
-    .btn:hover { background: #1f2937; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn.danger { background: #ef4444; margin-top: 0.5rem; }
-    .btn.danger:hover { background: #dc2626; }
-    .error-box {
-      background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.5rem;
-      padding: 0.5rem 0.75rem; font-size: 0.8rem; color: #dc2626;
-      margin-bottom: 1rem; display: none;
-    }
-    .status-card {
-      padding: 1rem; background: #f9fafb;
-      border: 1px solid #e5e7eb; border-radius: 0.5rem; font-size: 0.8rem;
-      margin-bottom: 1rem;
-    }
-    .dot {
-      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-      margin-right: 0.5rem; vertical-align: middle;
-    }
-    .dot.idle { background: #22c55e; }
-    .dot.syncing { background: #3b82f6; animation: pulse 1s infinite; }
-    .dot.error { background: #ef4444; }
-    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
-    .meta { margin-top: 0.75rem; color: #6b7280; font-size: 0.75rem; }
-    .meta span { margin-right: 1rem; }
-    .server-info {
-      margin-top: 0.75rem; font-size: 0.7rem; color: #9ca3af;
-      word-break: break-all;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>LiteCloud Sync</h1>
-    <p class="subtitle">Keep a local folder in sync with your cloud</p>
-
-    <div class="card">
-      <!-- LOGIN FORM -->
-      <div id="form-view">
-        <div id="error-box" class="error-box"></div>
-
-        <div class="field">
-          <label for="url">Server URL</label>
-          <input type="url" id="url" value="http://localhost:5173" />
-        </div>
-        <div class="field">
-          <label for="email">Email</label>
-          <input type="email" id="email" placeholder="you@example.com" />
-        </div>
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" />
-        </div>
-        <div class="field">
-          <label for="dir">Local Folder</label>
-          <input type="text" id="dir" placeholder="/Users/you/LiteCloud" />
-        </div>
-        <button class="btn" id="start-btn" onclick="handleStart()">Start Syncing</button>
-      </div>
-
-      <!-- CONNECTED VIEW -->
-      <div id="connected-view" style="display:none">
-        <div class="status-card">
-          <span class="dot" id="status-dot"></span>
-          <strong id="status-text">Connected</strong>
-          <div class="meta">
-            <span id="stat-up">0 uploaded</span>
-            <span id="stat-down">0 downloaded</span>
-          </div>
-          <div class="server-info" id="server-info"></div>
-        </div>
-        <button class="btn danger" onclick="handleStop()">Disconnect</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // Access invoke lazily — Tauri injects __TAURI__ after page load
-    function invoke(cmd, args) {
-      return window.__TAURI__.core.invoke(cmd, args);
-    }
-
-    function showError(msg) {
-      const box = document.getElementById('error-box');
-      box.textContent = msg;
-      box.style.display = 'block';
-    }
-
-    function hideError() {
-      document.getElementById('error-box').style.display = 'none';
-    }
-
-    async function handleStart() {
-      const url = document.getElementById('url').value.replace(/\/+$/, '');
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
-      const dir = document.getElementById('dir').value;
-
-      hideError();
-
-      if (!url || !email || !password || !dir) {
-        showError('All fields are required.');
-        return;
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LiteCloud Sync</title>
+    <style>
+      :root {
+        --primary: #4285f4;
+        --on-primary: #fff;
+        --surface: #fafafa;
+        --on-surface: #1c1b1f;
+        --on-surface-variant: #49454f;
+        --outline: #79747e;
+        --surface-container: #f0f0f0;
+        --error: #b3261e;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        color: var(--on-surface);
+        background: var(--surface);
       }
-
-      const btn = document.getElementById('start-btn');
-      btn.disabled = true;
-      btn.textContent = 'Connecting...';
-
-      try {
-        // Test connection via Rust backend (bypasses webview CORS)
-        const result = await invoke('test_connection', { url, email, password });
-
-        if (!result.ok) {
-          showError(result.error || 'Connection failed');
-          btn.disabled = false;
-          btn.textContent = 'Start Syncing';
-          return;
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --primary: #a8c7fa;
+          --on-primary: #062e6f;
+          --surface: #1c1b1f;
+          --on-surface: #e6e1e5;
+          --on-surface-variant: #cac4d0;
+          --outline: #938f99;
+          --surface-container: #2b2930;
+          --error: #f2b8b5;
         }
-
-        // Start sync
-        await invoke('start_sync', { url, email, password, dir });
-
-        // Switch to connected view
-        document.getElementById('form-view').style.display = 'none';
-        document.getElementById('connected-view').style.display = 'block';
-        document.getElementById('server-info').textContent = url + ' — ' + email;
-        document.getElementById('status-dot').className = 'dot idle';
-        document.getElementById('status-text').textContent = 'Connected';
-
-      } catch (e) {
-        showError('Error: ' + (e.message || e));
-        btn.disabled = false;
-        btn.textContent = 'Start Syncing';
       }
-    }
-
-    async function handleStop() {
-      try {
-        await invoke('stop_sync');
-      } catch {}
-      document.getElementById('form-view').style.display = 'block';
-      document.getElementById('connected-view').style.display = 'none';
-      document.getElementById('start-btn').disabled = false;
-      document.getElementById('start-btn').textContent = 'Start Syncing';
-    }
-  </script>
-</body>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { overflow: hidden; user-select: none; -webkit-user-select: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>
