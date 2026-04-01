@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { unlockMasterKey, storeMasterKey } from '$lib/crypto';
+	import { unlockMasterKey, storeMasterKey, generateEncryptionKeys } from '$lib/crypto';
 	import { t } from '$lib/i18n/index.svelte';
 	import AnimatedIcon from '$lib/components/AnimatedIcon.svelte';
 	import { MORPH_PAIRS } from '$lib/utils/icon-paths';
@@ -42,7 +42,16 @@
 
 	async function doUnlock(password: string, salt: string, emk: string, mkiv: string) {
 		if (salt && emk && mkiv) {
+			// Unlock existing encryption keys
 			try { const k = await unlockMasterKey(password, salt, emk, mkiv); storeMasterKey(k); } catch {}
+		} else {
+			// No encryption keys yet — generate them now (same as registration)
+			try {
+				const keys = await generateEncryptionKeys(password);
+				await fetch('/api/auth/encryption', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(keys) });
+				const mk = await unlockMasterKey(password, keys.salt, keys.encryptedMasterKey, keys.masterKeyIv);
+				storeMasterKey(mk);
+			} catch {}
 		}
 		window.location.href = '/files';
 	}

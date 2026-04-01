@@ -159,7 +159,7 @@
 	"settings.dark": "Dunkel",
 	"settings.encryption": "Ende-zu-Ende-Verschlüsselung",
 	"settings.encryptionActive": "Dateien mit AES-256-GCM verschlüsselt. Der Server kann deine Daten nicht lesen.",
-	"settings.encryptionInactive": "Melde dich erneut an um die Verschlüsselung zu aktivieren.",
+	"settings.encryptionInactive": "Melde dich ab und erneut an — die Verschlüsselung wird automatisch eingerichtet.",
 	"settings.active": "Aktiv",
 	"settings.twoFactor": "Zwei-Faktor-Authentifizierung",
 	"settings.2faActive": "2FA ist aktiv. Du brauchst deine Authenticator-App zum Anmelden.",

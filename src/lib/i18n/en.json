@@ -159,7 +159,7 @@
 	"settings.dark": "Dark",
 	"settings.encryption": "End-to-End Encryption",
 	"settings.encryptionActive": "Files encrypted with AES-256-GCM. The server cannot read your data.",
-	"settings.encryptionInactive": "Re-login to activate encryption.",
+	"settings.encryptionInactive": "Log out and back in — encryption will be set up automatically.",
 	"settings.active": "Active",
 	"settings.twoFactor": "Two-Factor Authentication",
 	"settings.2faActive": "2FA is active. You need your authenticator app to sign in.",
