@@ -20,7 +20,6 @@
     } catch (e: any) {
       if (typeof e === "string" && e.includes("totp")) {
         needsTotp = true;
-        error = "";
       } else {
         error = typeof e === "string" ? e : e.message || "Anmeldung fehlgeschlagen";
       }
@@ -30,73 +29,48 @@
   }
 </script>
 
-<div class="container">
-  <div class="logo">
-    <svg viewBox="0 0 24 24" width="48" height="48" fill="var(--primary)">
-      <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
-    </svg>
-    <h1>LiteCloud Sync</h1>
-    <p class="subtitle">Mit deiner Cloud verbinden</p>
+<div class="min-h-screen flex flex-col justify-center px-8 py-6">
+  <div class="flex flex-col items-center mb-8">
+    <div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+      <span class="material-symbols-outlined text-primary" style="font-size:32px">cloud</span>
+    </div>
+    <h1 class="text-lg font-semibold text-on-surface">LiteCloud Sync</h1>
+    <p class="text-xs text-on-surface-variant mt-1">Mit deiner Cloud verbinden</p>
   </div>
 
   <form on:submit|preventDefault={handleLogin}>
-    <label>
-      <span>Server-URL</span>
-      <input type="url" bind:value={serverUrl} placeholder="https://lite.example.com" required />
-    </label>
+    <div class="mb-4">
+      <label for="server" class="m3-label">Server-URL</label>
+      <input type="url" id="server" bind:value={serverUrl} placeholder="https://lite.example.com" required class="m3-input" />
+    </div>
 
-    <label>
-      <span>E-Mail</span>
-      <input type="email" bind:value={email} placeholder="name@example.com" required />
-    </label>
+    <div class="mb-4">
+      <label for="email" class="m3-label">E-Mail</label>
+      <input type="email" id="email" bind:value={email} placeholder="name@example.com" required class="m3-input" />
+    </div>
 
-    <label>
-      <span>Passwort</span>
-      <input type="password" bind:value={password} required />
-    </label>
+    <div class="mb-4">
+      <label for="password" class="m3-label">Passwort</label>
+      <input type="password" id="password" bind:value={password} required class="m3-input" />
+    </div>
 
     {#if needsTotp}
-      <label>
-        <span>2FA-Code</span>
-        <input type="text" bind:value={totpCode} placeholder="000000" maxlength="6" inputmode="numeric" required />
-      </label>
+      <div class="mb-4">
+        <label for="totp" class="m3-label">2FA-Code</label>
+        <input type="text" id="totp" bind:value={totpCode} placeholder="000000" maxlength="6" inputmode="numeric" required
+          class="m3-input text-center tracking-[0.3em] font-mono" />
+      </div>
     {/if}
 
     {#if error}
-      <div class="error">{error}</div>
+      <div class="text-xs text-error bg-error-container/30 rounded-lg px-3 py-2.5 flex items-center gap-2 mb-4">
+        <span class="material-symbols-outlined" style="font-size:16px">error</span>
+        {error}
+      </div>
     {/if}
 
-    <button type="submit" disabled={loading}>
+    <button type="submit" disabled={loading} class="desktop-btn-primary mt-2">
       {loading ? "Verbinde..." : "Anmelden"}
     </button>
   </form>
 </div>
-
-<style>
-  .container { padding: 40px 32px; display: flex; flex-direction: column; height: 100vh; }
-  .logo { text-align: center; margin-bottom: 32px; }
-  .logo h1 { font-size: 20px; font-weight: 600; margin-top: 12px; }
-  .subtitle { font-size: 13px; color: var(--on-surface-variant); margin-top: 4px; }
-  form { display: flex; flex-direction: column; gap: 16px; }
-  label { display: flex; flex-direction: column; gap: 4px; }
-  label span { font-size: 12px; font-weight: 500; color: var(--on-surface-variant); }
-  input {
-    padding: 10px 14px; border: 1px solid var(--outline); border-radius: 8px;
-    font-size: 14px; background: var(--surface); color: var(--on-surface);
-    outline: none; transition: border-color 0.15s;
-  }
-  input:focus { border-color: var(--primary); }
-  button {
-    margin-top: 8px; padding: 12px; border: none; border-radius: 24px;
-    background: var(--primary); color: var(--on-primary);
-    font-size: 14px; font-weight: 500; cursor: pointer;
-    transition: opacity 0.15s;
-  }
-  button:hover { opacity: 0.9; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .error {
-    padding: 10px 14px; border-radius: 8px;
-    background: color-mix(in srgb, var(--error) 15%, transparent);
-    color: var(--error); font-size: 13px;
-  }
-</style>

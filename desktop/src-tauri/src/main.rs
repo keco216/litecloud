@@ -1,15 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
+mod bandwidth;
 mod commands;
+mod context_menu;
 mod db;
+mod notifications;
+mod sync_engine;
+mod tray;
+mod watcher;
 
 use commands::AppState;
-use std::sync::Mutex;
-use tauri::Manager;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, Listener, Manager};
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Handle CLI actions from context menu (--action share/browser/sync)
+    let args: Vec<String> = std::env::args().collect();
+    if context_menu::handle_cli_action(&args) {
+        return;
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -30,11 +43,59 @@ fn main() {
             std::fs::create_dir_all(&app_data).ok();
             let sync_db = db::SyncDb::open(&app_data).expect("Failed to open sync DB");
 
-            // Manage shared state
+            // Shared state
+            let api = api::LiteCloudApi::new();
+            let paused = Arc::new(AtomicBool::new(false));
+            let syncing = Arc::new(AtomicBool::new(false));
+
             app.manage(AppState {
-                api: api::LiteCloudApi::new(),
+                api: api.clone(),
                 db: Mutex::new(sync_db),
                 sync_folder: Mutex::new(String::new()),
+                paused: paused.clone(),
+                syncing: syncing.clone(),
+            });
+
+            // System tray
+            tray::setup_tray(app.handle())?;
+
+            // Register Explorer context menu
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(exe_str) = exe.to_str() {
+                    context_menu::register(exe_str).ok();
+                }
+            }
+
+            // Tray events
+            let handle = app.handle().clone();
+            app.listen("tray-sync-now", move |_| {
+                handle.emit("trigger-sync", ()).ok();
+            });
+
+            let handle2 = app.handle().clone();
+            let paused2 = paused.clone();
+            app.listen("tray-toggle-pause", move |_| {
+                let was = paused2.load(Ordering::Relaxed);
+                paused2.store(!was, Ordering::Relaxed);
+                handle2.emit("pause-changed", !was).ok();
+                log::info!("[sync] Paused: {}", !was);
+            });
+
+            app.listen("tray-open-folder", {
+                let handle = app.handle().clone();
+                move |_| {
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        if let Ok(folder) = state.sync_folder.lock() {
+                            if !folder.is_empty() {
+                                #[cfg(target_os = "windows")]
+                                std::process::Command::new("explorer")
+                                    .arg(folder.as_str())
+                                    .spawn()
+                                    .ok();
+                            }
+                        }
+                    }
+                }
             });
 
             // Hide window on startup if --minimized flag
