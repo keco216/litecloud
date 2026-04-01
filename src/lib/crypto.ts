@@ -89,7 +89,7 @@ export async function unlockMasterKey(
 
 	const rawMaster = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, passwordKey, encryptedMaster);
 
-	return crypto.subtle.importKey('raw', rawMaster, { name: 'AES-GCM', length: 256 }, false, [
+	return crypto.subtle.importKey('raw', rawMaster, { name: 'AES-GCM', length: 256 }, true, [
 		'encrypt',
 		'decrypt'
 	]);
