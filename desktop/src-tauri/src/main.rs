@@ -2,6 +2,7 @@
 
 mod api;
 mod bandwidth;
+mod cloud_provider;
 mod commands;
 mod context_menu;
 mod db;
